@@ -1,0 +1,12 @@
+services:
+  octofinance:
+    build: .
+    container_name: octofinance
+    restart: unless-stopped
+    ports:
+      - "8000:8000"
+    volumes:
+      # Persistent data (PATs, seats, usage cache, audit log)
+      - ./data:/app/data
+      # Copilot CLI credentials from host
+      - /home/azureuser/.copilot:/root/.copilot

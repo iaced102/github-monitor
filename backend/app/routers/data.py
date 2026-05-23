@@ -49,6 +49,47 @@ async def get_orgs():
 
         orgs_list.append(org_data)
 
+    # Also include enterprise slugs that have synced data but no matching org
+    existing_logins = {o["login"] for o in all_orgs}
+    for ent in api_manager.get_all_enterprises():
+        slug = ent.get("slug", "")
+        if not slug or slug in existing_logins:
+            continue
+        billing = data_collector.load_latest("billing", slug)
+        seats_data = data_collector.load_latest("seats", slug)
+        total_seats = 0
+        active_seats = 0
+        if billing:
+            sb = billing.get("seat_breakdown", {})
+            total_seats = sb.get("total", 0)
+            active_seats = sb.get("active_this_cycle", 0)
+        elif seats_data:
+            from datetime import datetime, timezone
+            now = datetime.now(timezone.utc)
+            total_seats = seats_data.get("total_seats", 0)
+            active_seats = 0
+            for s in seats_data.get("seats", []):
+                last = s.get("last_activity_at")
+                if last:
+                    try:
+                        if (now - datetime.fromisoformat(last.replace("Z", "+00:00"))).days < 30:
+                            active_seats += 1
+                    except (ValueError, TypeError):
+                        pass
+        org_data = {
+            "login": slug,
+            "avatar_url": None,
+            "description": ent.get("name", slug),
+            "has_copilot": billing is not None or seats_data is not None,
+            "enterprise": ent.get("name", slug),
+            "pat_user": ent.get("pat_user", ""),
+            "plan_type": billing.get("_detected_plan_type", "enterprise") if billing else "enterprise",
+            "price_per_seat": billing.get("_detected_price_per_seat", 39.0) if billing else 39.0,
+            "total_seats": total_seats,
+            "active_seats": active_seats,
+        }
+        orgs_list.append(org_data)
+
     # Group by enterprise
     groups: dict[str, list] = defaultdict(list)
     for org in orgs_list:
@@ -65,24 +106,39 @@ async def get_orgs():
 @router.get("/data/overview")
 async def get_overview():
     """Get a quick overview across all organizations."""
-    all_orgs = api_manager.get_all_orgs()
+    all_scope_names = _get_all_scope_names()
     total_seats = 0
     total_active = 0
     total_cost = 0.0
     total_waste = 0.0
     orgs_with_copilot = 0
 
-    for org_info in all_orgs:
-        org_name = org_info["login"]
+    for org_name in all_scope_names:
         billing = data_collector.load_latest("billing", org_name)
-        if not billing:
+        seats_data = data_collector.load_latest("seats", org_name)
+        if not billing and not seats_data:
             continue
 
         orgs_with_copilot += 1
-        price = billing.get("_detected_price_per_seat", 19.0)
-        sb = billing.get("seat_breakdown", {})
-        seats = sb.get("total", 0)
-        active = sb.get("active_this_cycle", 0)
+        if billing:
+            price = billing.get("_detected_price_per_seat", 19.0)
+            sb = billing.get("seat_breakdown", {})
+            seats = sb.get("total", 0)
+            active = sb.get("active_this_cycle", 0)
+        else:
+            from datetime import datetime, timezone
+            now = datetime.now(timezone.utc)
+            price = 39.0
+            seats = seats_data.get("total_seats", 0)
+            active = 0
+            for s in seats_data.get("seats", []):
+                last = s.get("last_activity_at")
+                if last:
+                    try:
+                        if (now - datetime.fromisoformat(last.replace("Z", "+00:00"))).days < 30:
+                            active += 1
+                    except (ValueError, TypeError):
+                        pass
 
         total_seats += seats
         total_active += active
@@ -90,7 +146,7 @@ async def get_overview():
         total_waste += (seats - active) * price
 
     return {
-        "total_organizations": len(all_orgs),
+        "total_organizations": len(all_scope_names),
         "orgs_with_copilot": orgs_with_copilot,
         "total_seats": total_seats,
         "total_active_seats": total_active,
@@ -100,6 +156,16 @@ async def get_overview():
         "monthly_waste": total_waste,
         "annual_waste": total_waste * 12,
     }
+
+
+def _get_all_scope_names() -> list[str]:
+    """Return all org logins + enterprise slugs that may have synced data."""
+    names = [o["login"] for o in api_manager.get_all_orgs()]
+    for ent in api_manager.get_all_enterprises():
+        slug = ent.get("slug", "")
+        if slug and slug not in names:
+            names.append(slug)
+    return names
 
 
 @router.get("/data/seats/{org}")
@@ -127,11 +193,10 @@ async def get_dashboard(orgs: str = Query(default="")):
     Query param ``orgs`` is a comma-separated list of org logins to include.
     Empty means all orgs with Copilot billing data.
     """
-    all_orgs = api_manager.get_all_orgs()
-    all_org_names = [o["login"] for o in all_orgs]
+    all_org_names = _get_all_scope_names()
     selected = [o.strip() for o in orgs.split(",") if o.strip()] if orgs.strip() else all_org_names
 
-    # --- KPI from billing ---
+    # --- KPI from billing (with fallback to seats data when billing unavailable) ---
     total_seats = 0
     active_seats = 0
     monthly_cost = 0.0
@@ -140,13 +205,24 @@ async def get_dashboard(orgs: str = Query(default="")):
 
     for org_name in selected:
         billing = data_collector.load_latest("billing", org_name)
-        if not billing:
+        seats_data = data_collector.load_latest("seats", org_name)
+        if not billing and not seats_data:
             continue
         available_orgs.append(org_name)
-        price = billing.get("_detected_price_per_seat", 19.0)
-        sb = billing.get("seat_breakdown", {})
-        s = sb.get("total", 0)
-        a = sb.get("active_this_cycle", 0)
+        if billing:
+            # Skip scope-error placeholders in KPI calculation
+            if billing.get("_billing_scope_error"):
+                available_orgs.append(org_name)
+                continue
+            price = billing.get("_detected_price_per_seat", 19.0)
+            sb = billing.get("seat_breakdown", {})
+            s = sb.get("total", 0)
+            a = sb.get("active_this_cycle", 0)
+        else:
+            # No billing data — derive seat count from seats endpoint, cost from default enterprise price
+            price = 39.0
+            s = seats_data.get("total_seats", 0)
+            a = 0
         total_seats += s
         active_seats += a
         monthly_cost += s * price
@@ -155,6 +231,13 @@ async def get_dashboard(orgs: str = Query(default="")):
     inactive_seats = total_seats - active_seats
     utilization_pct = round(active_seats / total_seats * 100, 1) if total_seats > 0 else 0
 
+    # Check if any scope errors were encountered (billing 403)
+    billing_scope_error = any(
+        data_collector.load_latest("billing", o) and
+        data_collector.load_latest("billing", o).get("_billing_scope_error")
+        for o in available_orgs
+    )
+
     kpi = {
         "total_seats": total_seats,
         "active_seats": active_seats,
@@ -162,6 +245,7 @@ async def get_dashboard(orgs: str = Query(default="")):
         "utilization_pct": utilization_pct,
         "monthly_cost": monthly_cost,
         "monthly_waste": monthly_waste,
+        "billing_scope_error": billing_scope_error,
     }
 
     # --- Seat info from billing + seats ---
@@ -421,6 +505,170 @@ async def get_dashboard(orgs: str = Query(default="")):
 
 
 # ---------------------------------------------------------------------------
+# API-sourced activity/premium helpers (fallback when no CSV uploaded)
+# ---------------------------------------------------------------------------
+
+def _build_api_usage_section() -> dict:
+    """Build per-user activity report from API-synced usage_users data."""
+    all_scope_names = _get_all_scope_names()
+    user_agg: dict[str, dict] = defaultdict(lambda: {
+        "interactions": 0, "code_gen": 0, "code_accept": 0,
+        "loc_suggested": 0, "loc_accepted": 0, "days_active": 0,
+        "org": "", "ides": defaultdict(int),
+    })
+    date_start = ""
+    date_end = ""
+
+    for scope in all_scope_names:
+        uu = data_collector.load_latest("usage_users", scope)
+        if not uu:
+            continue
+        for rec in uu.get("records", []):
+            login = rec.get("user_login", "")
+            if not login:
+                continue
+            day = rec.get("day", "")
+            if day:
+                if not date_start or day < date_start:
+                    date_start = day
+                if not date_end or day > date_end:
+                    date_end = day
+            u = user_agg[login]
+            u["interactions"] += rec.get("user_initiated_interaction_count", 0)
+            u["code_gen"] += rec.get("code_generation_activity_count", 0)
+            u["code_accept"] += rec.get("code_acceptance_activity_count", 0)
+            u["loc_suggested"] += (
+                rec.get("loc_suggested_to_add_sum", 0) + rec.get("loc_suggested_to_delete_sum", 0)
+            )
+            u["loc_accepted"] += (
+                rec.get("loc_added_sum", 0) + rec.get("loc_deleted_sum", 0)
+            )
+            u["days_active"] += 1
+            if not u["org"]:
+                u["org"] = scope
+            for ide_data in rec.get("totals_by_ide", []):
+                ide = ide_data.get("ide", "unknown")
+                u["ides"][ide] += ide_data.get("code_generation_activity_count", 0)
+
+    if not user_agg:
+        return {"has_data": False, "users": [], "date_range": {}, "total_users": 0}
+
+    users = sorted(
+        [
+            {
+                "user": k,
+                "org": v["org"],
+                "interactions": v["interactions"],
+                "code_gen": v["code_gen"],
+                "code_accept": v["code_accept"],
+                "loc_suggested": v["loc_suggested"],
+                "loc_accepted": v["loc_accepted"],
+                "days_active": v["days_active"],
+                "acceptance_rate": (
+                    round(v["code_accept"] / v["code_gen"] * 100, 1)
+                    if v["code_gen"] > 0 else 0.0
+                ),
+                "ides": [
+                    {"ide": ide, "count": cnt}
+                    for ide, cnt in sorted(v["ides"].items(), key=lambda x: -x[1])
+                ],
+            }
+            for k, v in user_agg.items()
+        ],
+        key=lambda x: -(x["interactions"] + x["code_gen"]),
+    )
+
+    return {
+        "has_data": True,
+        "date_range": {"start": date_start, "end": date_end},
+        "total_users": len(users),
+        "users": users,
+    }
+
+
+def _build_api_premium_section() -> dict:
+    """Build model usage stats from API-synced data.
+
+    Tries premium_requests data first (billing-level).
+    Falls back to totals_by_model_feature from usage data (activity-level).
+    """
+    all_scope_names = _get_all_scope_names()
+
+    # --- Try billing-level premium_requests data first ---
+    model_map: dict[str, dict] = defaultdict(lambda: {
+        "gross_qty": 0, "net_qty": 0, "gross_amount": 0.0, "net_amount": 0.0,
+    })
+    total_gross_qty = 0
+    total_net_qty = 0
+    total_gross_amount = 0.0
+
+    for scope in all_scope_names:
+        pr = data_collector.load_latest("premium_requests", scope)
+        if not pr:
+            continue
+        for item in pr.get("usageItems", []):
+            m = item.get("model", "unknown")
+            model_map[m]["gross_qty"] += item.get("grossQuantity", 0)
+            model_map[m]["net_qty"] += item.get("netQuantity", 0)
+            model_map[m]["gross_amount"] += item.get("grossAmount", 0.0)
+            model_map[m]["net_amount"] += item.get("netAmount", 0.0)
+            total_gross_qty += item.get("grossQuantity", 0)
+            total_net_qty += item.get("netQuantity", 0)
+            total_gross_amount += item.get("grossAmount", 0.0)
+
+    if model_map:
+        models = sorted(
+            [{"model": k, **v} for k, v in model_map.items()],
+            key=lambda x: -x["gross_qty"],
+        )
+        return {
+            "has_data": True,
+            "source": "billing",
+            "models": models,
+            "total_requests": total_gross_qty,
+            "net_requests": total_net_qty,
+            "total_cost": round(total_gross_amount, 4),
+        }
+
+    # --- Fallback: derive model usage from usage totals_by_model_feature ---
+    activity_model_map: dict[str, dict] = defaultdict(lambda: {
+        "interactions": 0, "code_gen": 0, "code_accept": 0,
+    })
+    for scope in all_scope_names:
+        usage = data_collector.load_latest("usage", scope)
+        if not usage:
+            continue
+        for rec in usage.get("records", []):
+            for dt in rec.get("day_totals", []):
+                for mf in dt.get("totals_by_model_feature", []):
+                    m = mf.get("model", "unknown")
+                    activity_model_map[m]["interactions"] += mf.get("user_initiated_interaction_count", 0)
+                    activity_model_map[m]["code_gen"] += mf.get("code_generation_activity_count", 0)
+                    activity_model_map[m]["code_accept"] += mf.get("code_acceptance_activity_count", 0)
+
+    if not activity_model_map:
+        return {"has_data": False, "models": [], "total_requests": 0, "net_requests": 0, "total_cost": 0.0}
+
+    total_interactions = sum(v["interactions"] for v in activity_model_map.values())
+    total_code_gen = sum(v["code_gen"] for v in activity_model_map.values())
+    activity_models = sorted(
+        [{"model": k, "gross_qty": v["interactions"] + v["code_gen"],
+          "net_qty": v["code_accept"], "gross_amount": 0.0, "net_amount": 0.0,
+          "interactions": v["interactions"], "code_gen": v["code_gen"], "code_accept": v["code_accept"]}
+         for k, v in activity_model_map.items()],
+        key=lambda x: -x["gross_qty"],
+    )
+    return {
+        "has_data": True,
+        "source": "activity",
+        "models": activity_models,
+        "total_requests": total_interactions + total_code_gen,
+        "net_requests": total_interactions,
+        "total_cost": 0.0,
+    }
+
+
+# ---------------------------------------------------------------------------
 # CSV dashboard endpoint (dedicated, separate from main dashboard)
 # ---------------------------------------------------------------------------
 
@@ -467,6 +715,8 @@ async def get_csv_dashboard(
     return {
         "premium_csv": premium,
         "usage_report": usage,
+        "api_usage": _build_api_usage_section(),
+        "api_premium": _build_api_premium_section(),
         "filters": {
             "orgs": sorted(all_orgs),
             "cost_centers": sorted(all_ccs),
@@ -1165,6 +1415,9 @@ async def get_cost_center_dashboard(
 
     user_map = sorted(user_cc_map.values(), key=lambda u: u["login"].lower())
 
+    # Build seat_fallback: seat data + activity metrics per user (shown when no cost centers)
+    seat_fallback = _build_seat_fallback(selected_slug)
+
     return {
         "enterprises": enterprise_list,
         "selected_enterprise": selected_slug,
@@ -1173,5 +1426,65 @@ async def get_cost_center_dashboard(
         "total_cost_centers": len(all_ccs),
         "total_unique_members": len(user_map),
         "user_map": user_map,
+        "seat_fallback": seat_fallback,
         "no_data": False,
+    }
+
+
+def _build_seat_fallback(scope: str) -> dict:
+    """Build per-user seat + activity data for use when enterprise has no cost centers."""
+    seats_data = data_collector.load_latest("seats", scope)
+    if not seats_data:
+        return {"has_data": False, "users": [], "total_seats": 0}
+
+    # Build activity map from usage_users
+    activity_map: dict[str, dict] = {}
+    uu = data_collector.load_latest("usage_users", scope)
+    if uu:
+        for rec in uu.get("records", []):
+            login = rec.get("user_login", "")
+            if not login:
+                continue
+            if login not in activity_map:
+                activity_map[login] = {
+                    "interactions": 0, "code_gen": 0, "code_accept": 0,
+                    "loc_suggested": 0, "days_active": 0,
+                }
+            a = activity_map[login]
+            a["interactions"] += rec.get("user_initiated_interaction_count", 0)
+            a["code_gen"] += rec.get("code_generation_activity_count", 0)
+            a["code_accept"] += rec.get("code_acceptance_activity_count", 0)
+            a["loc_suggested"] += rec.get("loc_suggested_to_add_sum", 0)
+            a["days_active"] += 1
+
+    users = []
+    for seat in seats_data.get("seats", []):
+        assignee = seat.get("assignee", {})
+        login = assignee.get("login", "")
+        team = seat.get("assigning_team")
+        act = activity_map.get(login, {})
+        users.append({
+            "login": login,
+            "avatar_url": assignee.get("avatar_url", ""),
+            "last_activity_at": seat.get("last_activity_at"),
+            "last_activity_editor": seat.get("last_activity_editor"),
+            "plan_type": seat.get("plan_type", ""),
+            "team": team.get("name", "") if team else "",
+            "interactions": act.get("interactions", 0),
+            "code_gen": act.get("code_gen", 0),
+            "code_accept": act.get("code_accept", 0),
+            "loc_suggested": act.get("loc_suggested", 0),
+            "days_active": act.get("days_active", 0),
+            "acceptance_rate": (
+                round(act["code_accept"] / act["code_gen"] * 100, 1)
+                if act.get("code_gen", 0) > 0 else 0.0
+            ),
+        })
+
+    users.sort(key=lambda x: -(x["interactions"] + x["code_gen"]))
+
+    return {
+        "has_data": True,
+        "total_seats": len(users),
+        "users": users,
     }

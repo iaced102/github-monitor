@@ -13,6 +13,7 @@ from typing import AsyncIterator, TYPE_CHECKING
 
 from copilot import CopilotClient, CopilotSession
 from copilot.generated.session_events import SessionEvent, SessionEventType
+from copilot.session import PermissionHandler
 
 from .data_collector import create_session_collector
 from ..tools.action_tools import create_action_tools
@@ -156,18 +157,16 @@ class CopilotAIEngine:
 
         session_tools = self._build_tools_for_session(working_directory)
 
-        resume_config: dict = {
-            "tools": session_tools,
-            "system_message": {
+        session = await self._client.resume_session(
+            sdk_session_id,
+            tools=session_tools,
+            system_message={
                 "mode": "append",
                 "content": FINOPS_SYSTEM_PROMPT,
             },
-            "on_permission_request": self._auto_approve,
-        }
-        if working_directory:
-            resume_config["working_directory"] = working_directory
-
-        session = await self._client.resume_session(sdk_session_id, resume_config)
+            on_permission_request=self._auto_approve,
+            working_directory=working_directory,
+        )
         self._sessions[session_id] = session
         # Update the persisted ID (it should be the same, but be safe)
         self._write_sdk_session_id(working_directory, session.session_id)
@@ -182,18 +181,15 @@ class CopilotAIEngine:
 
         session_tools = self._build_tools_for_session(working_directory)
 
-        session_config: dict = {
-            "tools": session_tools,
-            "system_message": {
+        session = await self._client.create_session(
+            tools=session_tools,
+            system_message={
                 "mode": "append",
                 "content": FINOPS_SYSTEM_PROMPT,
             },
-            "on_permission_request": self._auto_approve,
-        }
-        if working_directory:
-            session_config["working_directory"] = working_directory
-
-        session = await self._client.create_session(session_config)
+            on_permission_request=self._auto_approve,
+            working_directory=working_directory,
+        )
         self._sessions[session_id] = session
 
         # Persist SDK session ID so we can resume after restart
@@ -290,14 +286,26 @@ class CopilotAIEngine:
                 tool_name = getattr(event.data, "tool_name", None)
                 tool_call_id = getattr(event.data, "tool_call_id", None)
                 result_obj = getattr(event.data, "result", None)
+                error_obj = getattr(event.data, "error", None)
+                success = getattr(event.data, "success", None)
                 result_text = None
                 if result_obj is not None:
                     result_text = getattr(result_obj, "content", None)
+                error_msg = None
+                if error_obj is not None:
+                    error_msg = getattr(error_obj, "message", str(error_obj))
+                # Log to help debug tool result delivery
+                if not success or error_msg:
+                    logger.warning(
+                        "Tool %s complete: success=%s, error=%s, result_len=%s",
+                        tool_call_id, success, error_msg,
+                        len(result_text) if result_text else 0,
+                    )
                 queue.put_nowait({
                     "type": "tool_complete",
                     "content": tool_name,
                     "tool_call_id": tool_call_id,
-                    "detail": result_text,
+                    "detail": result_text or error_msg,
                 })
             elif event.type == SessionEventType.ASSISTANT_USAGE:
                 data = event.data
@@ -323,7 +331,7 @@ class CopilotAIEngine:
         unsubscribe = session.on(on_event)
         try:
             try:
-                await session.send({"prompt": message})
+                await session.send(message)
             except Exception as send_err:
                 if "Session not found" in str(send_err):
                     # Session expired or SDK restarted — create fresh and retry
@@ -331,7 +339,7 @@ class CopilotAIEngine:
                     unsubscribe()
                     session = await self._retry_with_new_session(session_id, working_directory)
                     unsubscribe = session.on(on_event)
-                    await session.send({"prompt": message})
+                    await session.send(message)
                 else:
                     raise
 
@@ -353,12 +361,12 @@ class CopilotAIEngine:
         """Send a message and return the final response text."""
         session = await self.get_or_create_session(session_id, working_directory)
         try:
-            response = await session.send_and_wait({"prompt": message}, timeout=300)
+            response = await session.send_and_wait(message, timeout=300)
         except Exception as e:
             if "Session not found" in str(e):
                 logger.warning("Session not found for %s, creating new session", session_id)
                 session = await self._retry_with_new_session(session_id, working_directory)
-                response = await session.send_and_wait({"prompt": message}, timeout=300)
+                response = await session.send_and_wait(message, timeout=300)
             else:
                 raise
         if response:
@@ -375,9 +383,10 @@ class CopilotAIEngine:
                 pass
 
     @staticmethod
-    async def _auto_approve(request, context):
-        """Auto-approve tool permission requests."""
-        return {"kind": "approved"}
+    @staticmethod
+    def _auto_approve(request, context):
+        """Auto-approve all tool permission requests."""
+        return PermissionHandler.approve_all(request, context)
 
 
 # Global instance

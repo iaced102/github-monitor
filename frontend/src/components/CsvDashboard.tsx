@@ -6,7 +6,7 @@ import {
 import { useI18n } from "../contexts/I18nContext";
 import { useUIState } from "../contexts/UIStateContext";
 import { useCsvDashboard } from "../hooks/useData";
-import type { PremiumCsvSection, UsageReportSection } from "../types";
+import type { PremiumCsvSection, UsageReportSection, ApiUsageSection, ApiPremiumSection } from "../types";
 
 const COLORS = ["#58a6ff", "#3fb950", "#d29922", "#f85149", "#bc8cff", "#f778ba", "#79c0ff", "#56d364"];
 const TOOLTIP_STYLE = { background: "var(--bg-secondary)", border: "1px solid var(--border)", borderRadius: 8, fontSize: 12 };
@@ -88,11 +88,168 @@ function Section({ sectionKey, title, defaultOpen = true, children }: {
   );
 }
 
+/* ---------- API Premium fallback content ---------- */
+function ApiPremiumContent({ data }: { data: ApiPremiumSection }) {
+  const { t } = useI18n();
+  const isActivity = data.source === "activity";
+
+  return (
+    <>
+      <div className="dashboard-notice" style={{ marginBottom: 12, padding: "8px 14px", background: "var(--bg-secondary)", border: "1px solid var(--border)", borderRadius: 8, fontSize: 12, color: "var(--text-muted)" }}>
+        {isActivity ? t("csvDash.apiModelActivitySource") : t("csvDash.apiDataSource")}
+      </div>
+      <div className="dashboard-kpi">
+        {isActivity ? (
+          <>
+            <div className="stat-card">
+              <div className="stat-value">{data.net_requests.toLocaleString()}</div>
+              <div className="stat-label">{t("dashboard.interactions")}</div>
+            </div>
+            <div className="stat-card">
+              <div className="stat-value">{(data.total_requests - data.net_requests).toLocaleString()}</div>
+              <div className="stat-label">{t("dashboard.codeGen")}</div>
+            </div>
+          </>
+        ) : (
+          <>
+            <div className="stat-card">
+              <div className="stat-value">{data.total_requests.toLocaleString()}</div>
+              <div className="stat-label">{t("csvDash.totalRequests")}</div>
+            </div>
+            <div className="stat-card">
+              <div className="stat-value">{data.net_requests.toLocaleString()}</div>
+              <div className="stat-label">{t("csvDash.netRequests")}</div>
+            </div>
+            <div className="stat-card cost">
+              <div className="stat-value cost">${data.total_cost.toFixed(4)}</div>
+              <div className="stat-label">{t("csvDash.totalCost")}</div>
+            </div>
+          </>
+        )}
+        <div className="stat-card">
+          <div className="stat-value">{data.models.length}</div>
+          <div className="stat-label">{t("csvDash.uniqueModels")}</div>
+        </div>
+      </div>
+
+      <Section sectionKey="apiPremiumModels" title={t("csvDash.modelBreakdown")}>
+        <div className="dashboard-charts">
+          <div className="chart-card chart-card-wide">
+            {data.models.length > 0 ? (
+              <ResponsiveContainer width="100%" height={Math.max(200, data.models.length * 48)}>
+                <BarChart data={data.models} layout="vertical">
+                  <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" />
+                  <XAxis type="number" tick={{ fontSize: 11, fill: "var(--text-muted)" }} />
+                  <YAxis dataKey="model" type="category" width={190} tick={{ fontSize: 11, fill: "var(--text-muted)" }} />
+                  <Tooltip contentStyle={TOOLTIP_STYLE} />
+                  {isActivity ? (
+                    <>
+                      <Bar dataKey="interactions" name={t("dashboard.interactions")} fill="#bc8cff" radius={[0, 4, 4, 0]} />
+                      <Bar dataKey="code_gen" name={t("dashboard.codeGen")} fill="#58a6ff" radius={[0, 4, 4, 0]} />
+                      <Bar dataKey="code_accept" name={t("dashboard.codeAccept")} fill="#3fb950" radius={[0, 4, 4, 0]} />
+                    </>
+                  ) : (
+                    <>
+                      <Bar dataKey="gross_qty" name={t("csvDash.totalRequests")} fill="#bc8cff" radius={[0, 4, 4, 0]} />
+                      <Bar dataKey="net_qty" name={t("csvDash.netRequests")} fill="#3fb950" radius={[0, 4, 4, 0]} />
+                    </>
+                  )}
+                  <Legend wrapperStyle={{ fontSize: 12 }} />
+                </BarChart>
+              </ResponsiveContainer>
+            ) : <div className="chart-empty">{t("csvDash.noData")}</div>}
+          </div>
+        </div>
+      </Section>
+    </>
+  );
+}
+
+/* ---------- API Usage Activity fallback content ---------- */
+function ApiUsageContent({ data }: { data: ApiUsageSection }) {
+  const { t } = useI18n();
+  return (
+    <>
+      <div className="dashboard-notice" style={{ marginBottom: 12, padding: "8px 14px", background: "var(--bg-secondary)", border: "1px solid var(--border)", borderRadius: 8, fontSize: 12, color: "var(--text-muted)" }}>
+        {t("csvDash.apiActivitySource")}
+      </div>
+      <div className="dashboard-kpi">
+        <div className="stat-card">
+          <div className="stat-value">{data.total_users}</div>
+          <div className="stat-label">{t("csvDash.uniqueUsers")}</div>
+        </div>
+        <div className="stat-card">
+          <div className="stat-value">{data.users.reduce((s, u) => s + u.code_gen, 0).toLocaleString()}</div>
+          <div className="stat-label">{t("dashboard.codeGen")}</div>
+        </div>
+        <div className="stat-card">
+          <div className="stat-value">{data.users.reduce((s, u) => s + u.code_accept, 0).toLocaleString()}</div>
+          <div className="stat-label">{t("dashboard.codeAccept")}</div>
+        </div>
+        <div className="stat-card">
+          <div className="stat-value">{data.users.reduce((s, u) => s + u.loc_suggested, 0).toLocaleString()}</div>
+          <div className="stat-label">{t("dashboard.locSuggested")}</div>
+        </div>
+      </div>
+
+      <Section sectionKey="apiUsageUsers" title={t("csvDash.userTable")}>
+        <div className="dashboard-charts">
+          <div className="chart-card chart-card-wide">
+            {data.users.length > 0 ? (
+              <div className="dashboard-table-wrap">
+                <table className="dashboard-table">
+                  <thead>
+                    <tr>
+                      <th>#</th>
+                      <th>{t("csvDash.user")}</th>
+                      <th>{t("csvDash.org")}</th>
+                      <th>{t("dashboard.interactions")}</th>
+                      <th>{t("dashboard.codeGen")}</th>
+                      <th>{t("dashboard.codeAccept")}</th>
+                      <th>{t("dashboard.locSuggested")}</th>
+                      <th>{t("dashboard.daysActive")}</th>
+                      <th>{t("dashboard.acceptRate")}</th>
+                      <th>IDEs</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {data.users.map((u, i) => (
+                      <tr key={u.user}>
+                        <td className="rank">{i + 1}</td>
+                        <td className="user-name">{u.user}</td>
+                        <td>{u.org}</td>
+                        <td>{u.interactions.toLocaleString()}</td>
+                        <td>{u.code_gen.toLocaleString()}</td>
+                        <td>{u.code_accept.toLocaleString()}</td>
+                        <td>{u.loc_suggested.toLocaleString()}</td>
+                        <td>{u.days_active}</td>
+                        <td>{u.acceptance_rate}%</td>
+                        <td className="model-tags">
+                          {u.ides.slice(0, 2).map((ide) => (
+                            <span key={ide.ide} className="dash-badge dash-badge-muted">
+                              {ide.ide}
+                            </span>
+                          ))}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            ) : <div className="chart-empty">{t("csvDash.noData")}</div>}
+          </div>
+        </div>
+      </Section>
+    </>
+  );
+}
+
 /* ---------- Premium CSV content ---------- */
-function PremiumContent({ data }: { data: PremiumCsvSection }) {
+function PremiumContent({ data, apiData }: { data: PremiumCsvSection; apiData?: ApiPremiumSection }) {
   const { t } = useI18n();
 
   if (!data.has_data) {
+    if (apiData?.has_data) return <ApiPremiumContent data={apiData} />;
     return <div className="dashboard-empty">{t("csvDash.noDataType")}</div>;
   }
 
@@ -254,10 +411,11 @@ function PremiumContent({ data }: { data: PremiumCsvSection }) {
 }
 
 /* ---------- Usage Report content ---------- */
-function UsageContent({ data }: { data: UsageReportSection }) {
+function UsageContent({ data, apiData }: { data: UsageReportSection; apiData?: ApiUsageSection }) {
   const { t } = useI18n();
 
   if (!data.has_data) {
+    if (apiData?.has_data) return <ApiUsageContent data={apiData} />;
     return <div className="dashboard-empty">{t("csvDash.noDataType")}</div>;
   }
 
@@ -448,7 +606,10 @@ export function CsvDashboard({ refreshKey, tab }: Props) {
 
   const { data, loading } = useCsvDashboard(params);
 
-  const hasAnyData = data && (data.premium_csv?.has_data || data.usage_report?.has_data);
+  const hasAnyData = data && (
+    data.premium_csv?.has_data || data.usage_report?.has_data ||
+    data.api_usage?.has_data || data.api_premium?.has_data
+  );
 
   const activeDateRange = useMemo(() => {
     if (!data) return null;
@@ -517,8 +678,8 @@ export function CsvDashboard({ refreshKey, tab }: Props) {
 
       {data && (
         tab === "premium"
-          ? <PremiumContent data={data.premium_csv} />
-          : <UsageContent data={data.usage_report} />
+          ? <PremiumContent data={data.premium_csv} apiData={data.api_premium} />
+          : <UsageContent data={data.usage_report} apiData={data.api_usage} />
       )}
     </div>
   );

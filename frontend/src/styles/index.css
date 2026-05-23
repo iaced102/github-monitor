@@ -2036,6 +2036,17 @@ body {
   color: var(--accent);
 }
 
+.billing-scope-banner {
+  background: color-mix(in srgb, var(--warning) 15%, transparent);
+  border: 1px solid var(--warning);
+  border-radius: var(--radius);
+  color: var(--warning);
+  font-size: 13px;
+  padding: 8px 14px;
+  margin-bottom: 12px;
+  line-height: 1.5;
+}
+
 /* Charts Grid */
 .dashboard-charts {
   display: grid;

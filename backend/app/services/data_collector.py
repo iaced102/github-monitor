@@ -1,5 +1,6 @@
 """
-Data collector service - fetches data from GitHub API and saves as JSON files.
+Data collector service - fetches data from GitHub API and stores to SQLite (primary)
+with JSON file fallback for session-scoped collectors.
 Supports per-session data directories with fallback to global directory.
 Uses APIManager to route API calls to the correct PAT.
 """
@@ -15,6 +16,7 @@ from ..config import config
 
 if TYPE_CHECKING:
     from .api_manager import APIManager
+    from .database import Database
     from .github_api import GitHubAPI
 
 # Type alias for the optional log callback: log_fn(level, message)
@@ -22,12 +24,16 @@ LogFn = Callable[[str, str], None] | None
 
 
 class DataCollector:
-    """Collects Copilot data from GitHub API and stores as JSON files.
+    """Collects Copilot data from GitHub API and stores it.
+
+    When a Database instance is provided, data is stored in SQLite.
+    Otherwise (e.g. session-scoped collectors) data is stored as JSON files.
 
     Args:
-        data_dir: Primary directory for reading/writing data.
+        data_dir: Primary directory for reading/writing JSON data (fallback/sessions).
         fallback_dir: Optional fallback directory for reads when primary has no data.
         api_manager: Optional APIManager for routing API calls per org.
+        db: Optional Database instance; if set, SQLite is used instead of JSON files.
     """
 
     def __init__(
@@ -35,10 +41,12 @@ class DataCollector:
         data_dir: Path | None = None,
         fallback_dir: Path | None = None,
         api_manager: APIManager | None = None,
+        db: "Database | None" = None,
     ):
         self._data_dir = data_dir or config.data_dir
         self._fallback_dir = fallback_dir
         self._api_manager = api_manager
+        self._db = db
 
     @property
     def data_dir(self) -> Path:
@@ -48,6 +56,10 @@ class DataCollector:
         """Set the API manager (useful for deferred initialization)."""
         self._api_manager = api_manager
 
+    def set_db(self, db: "Database"):
+        """Set the database instance (used by global collector after DB init)."""
+        self._db = db
+
     def _get_api_for_org(self, org: str) -> GitHubAPI | None:
         """Get the GitHubAPI instance for an org via api_manager."""
         if self._api_manager:
@@ -55,7 +67,13 @@ class DataCollector:
         return None
 
     def _save_json(self, category: str, org: str, data: dict | list) -> Path:
-        """Save data to a JSON file. Returns the file path."""
+        """Persist data: uses SQLite when DB is available, otherwise JSON files."""
+        if self._db is not None:
+            self._db.save_snapshot(category, org, data)
+            # Return a dummy path for callers that use the return value as a log reference
+            return self._data_dir / category / f"{org}_latest.json"
+
+        # JSON file fallback (session-scoped collectors)
         ts = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
         filepath = self._data_dir / category / f"{org}_{ts}.json"
         filepath.parent.mkdir(parents=True, exist_ok=True)
@@ -67,13 +85,20 @@ class DataCollector:
         return filepath
 
     def load_latest(self, category: str, org: str) -> dict | list | None:
-        """Load the latest data file. Checks primary dir first, then fallback."""
+        """Load the latest data. Checks DB first, then primary JSON dir, then fallback."""
+        if self._db is not None:
+            result = self._db.load_latest_snapshot(category, org)
+            if result is not None:
+                return result
+
+        # JSON file path (session fallback or when DB not yet ready)
         filepath = self._data_dir / category / f"{org}_latest.json"
         if filepath.exists():
             return json.loads(filepath.read_text(encoding="utf-8"))
 
         # Try fallback directory
         if self._fallback_dir:
+            # Try DB in fallback (not applicable for session collectors)
             fallback_path = self._fallback_dir / category / f"{org}_latest.json"
             if fallback_path.exists():
                 return json.loads(fallback_path.read_text(encoding="utf-8"))
@@ -81,7 +106,18 @@ class DataCollector:
         return None
 
     def load_all_latest(self, category: str) -> dict[str, dict | list]:
-        """Load latest data for all orgs. Checks primary dir first, fills from fallback."""
+        """Load latest data for all orgs. Uses DB when available, fills from JSON fallback."""
+        if self._db is not None:
+            result = self._db.load_all_latest_snapshots(category)
+            # Fill any missing orgs from JSON files (legacy data not yet in DB)
+            category_dir = self._data_dir / category
+            if category_dir.exists():
+                for f in category_dir.glob("*_latest.json"):
+                    org = f.name.replace("_latest.json", "")
+                    if org not in result:
+                        result[org] = json.loads(f.read_text(encoding="utf-8"))
+            return result
+
         result = {}
 
         # Read from primary directory
@@ -269,7 +305,7 @@ class DataCollector:
         return members
 
     async def sync_enterprises(self, log_fn: LogFn = None) -> dict:
-        """Sync enterprise list, all cost centers, and expand org/team members."""
+        """Sync enterprise list, cost centers, seats, billing, and usage reports."""
         summary: dict = {"synced": [], "errors": []}
         if not self._api_manager:
             return summary
@@ -286,49 +322,126 @@ class DataCollector:
         if log_fn:
             log_fn("info", f"  Enterprises synced: {[e['slug'] for e in enterprises]}")
 
-        # Sync cost centers per enterprise (with member expansion)
         for ent in enterprises:
             slug = ent["slug"]
             api = self._api_manager.get_api_for_enterprise(slug)
             if not api:
-                summary["errors"].append(f"cost_centers/{slug}: no API client")
+                summary["errors"].append(f"enterprise/{slug}: no API client")
                 continue
+
+            if log_fn:
+                log_fn("info", f"  Syncing enterprise: {slug}...")
+
+            # Cost centers
             try:
                 raw_cost_centers = await api.get_enterprise_cost_centers(slug)
                 if log_fn:
                     log_fn("info", f"  {slug}: {len(raw_cost_centers)} cost centers, expanding members...")
-
                 expanded = []
                 total_members = 0
                 for cc in raw_cost_centers:
                     members = await self._expand_cost_center_members(cc, api, log_fn=log_fn)
-                    expanded.append({
-                        **cc,
-                        "members": members,
-                        "member_count": len(members),
-                    })
+                    expanded.append({**cc, "members": members, "member_count": len(members)})
                     total_members += len(members)
-
                 self._save_json("cost_centers", slug, {
                     "enterprise": slug,
                     "enterprise_name": ent.get("name", ""),
                     "cost_centers": expanded,
                     "total": len(expanded),
                     "total_unique_members": len({
-                        m["login"]
-                        for cc in expanded
-                        for m in cc["members"]
+                        m["login"] for cc in expanded for m in cc["members"]
                     }),
                 })
                 summary["synced"].append(
                     f"cost_centers/{slug} ({len(expanded)} centers, {total_members} member assignments)"
                 )
                 if log_fn:
-                    log_fn("info", f"  {slug}: cost centers synced ({len(expanded)} centers, {total_members} member assignments)")
+                    log_fn("info", f"  {slug}: cost centers synced ({len(expanded)} centers)")
             except Exception as e:
                 summary["errors"].append(f"cost_centers/{slug}: {e}")
                 if log_fn:
                     log_fn("error", f"  {slug}: cost centers error - {e}")
+
+            # Billing (use enterprise slug as org key so existing tools pick it up)
+            try:
+                billing = await api.get_enterprise_copilot_billing(slug)
+                if billing:
+                    self._save_json("billing", slug, billing)
+                    summary["synced"].append(f"billing/{slug}")
+                    if log_fn:
+                        log_fn("info", f"  {slug}: billing synced")
+            except Exception as e:
+                summary["errors"].append(f"billing/{slug}: {e}")
+                if log_fn:
+                    log_fn("error", f"  {slug}: billing error - {e}")
+
+            # Seats
+            try:
+                seats = await api.get_enterprise_copilot_seats(slug)
+                if seats:
+                    self._save_json("seats", slug, seats)
+                    summary["synced"].append(f"seats/{slug} ({seats.get('total_seats', 0)} total)")
+                    if log_fn:
+                        log_fn("info", f"  {slug}: seats synced ({seats.get('total_seats', 0)} total)")
+            except Exception as e:
+                summary["errors"].append(f"seats/{slug}: {e}")
+                if log_fn:
+                    log_fn("error", f"  {slug}: seats error - {e}")
+
+            # Usage report (28-day)
+            try:
+                usage = await api.get_enterprise_usage_report_28day(slug)
+                if usage:
+                    self._save_json("usage", slug, usage)
+                    n = usage.get("total_records", 0)
+                    summary["synced"].append(f"usage/{slug} ({n} records)")
+                    if log_fn:
+                        log_fn("info", f"  {slug}: usage report synced ({n} records)")
+            except Exception as e:
+                summary["errors"].append(f"usage/{slug}: {e}")
+                if log_fn:
+                    log_fn("error", f"  {slug}: usage report error - {e}")
+
+            # Usage users report (28-day)
+            try:
+                users_usage = await api.get_enterprise_users_usage_report_28day(slug)
+                if users_usage:
+                    self._save_json("usage_users", slug, users_usage)
+                    n = users_usage.get("total_records", 0)
+                    summary["synced"].append(f"usage_users/{slug} ({n} records)")
+                    if log_fn:
+                        log_fn("info", f"  {slug}: usage users report synced ({n} records)")
+            except Exception as e:
+                summary["errors"].append(f"usage_users/{slug}: {e}")
+                if log_fn:
+                    log_fn("error", f"  {slug}: usage users report error - {e}")
+
+            # Metrics (legacy)
+            try:
+                metrics = await api.get_enterprise_copilot_metrics(slug)
+                if metrics:
+                    self._save_json("metrics", slug, metrics)
+                    summary["synced"].append(f"metrics/{slug} ({len(metrics)} entries)")
+                    if log_fn:
+                        log_fn("info", f"  {slug}: metrics synced ({len(metrics)} entries)")
+            except Exception as e:
+                summary["errors"].append(f"metrics/{slug}: {e}")
+                if log_fn:
+                    log_fn("error", f"  {slug}: metrics error - {e}")
+
+            # Premium requests
+            try:
+                premium = await api.get_enterprise_premium_request_usage(slug)
+                if premium:
+                    self._save_json("premium_requests", slug, premium)
+                    n = len(premium.get("usageItems", []))
+                    summary["synced"].append(f"premium_requests/{slug} ({n} items)")
+                    if log_fn:
+                        log_fn("info", f"  {slug}: premium requests synced ({n} items)")
+            except Exception as e:
+                summary["errors"].append(f"premium_requests/{slug}: {e}")
+                if log_fn:
+                    log_fn("error", f"  {slug}: premium requests error - {e}")
 
         return summary
 
@@ -338,8 +451,9 @@ class DataCollector:
             return []
 
         org_logins = self._api_manager.get_all_org_logins()
+        enterprises = self._api_manager.get_all_enterprises() if hasattr(self._api_manager, "get_all_enterprises") else []
         if log_fn:
-            log_fn("info", f"Starting sync for {len(org_logins)} org(s): {', '.join(org_logins)}")
+            log_fn("info", f"Starting sync for {len(org_logins)} org(s) and {len(enterprises)} enterprise(s): {', '.join(org_logins) or '(none)'}")
 
         results = []
         for org_name in org_logins:
@@ -364,11 +478,17 @@ def create_session_collector(
     session_dir: Path,
     api_manager: APIManager | None = None,
 ) -> DataCollector:
-    """Create a DataCollector scoped to a session directory, with fallback to global."""
+    """Create a DataCollector scoped to a session directory, with fallback to global.
+
+    Session writes go to JSON in session_dir (ephemeral).
+    Reads fall through to the global SQLite DB so AI tools see synced data.
+    """
+    from . import database as db_module
     return DataCollector(
         data_dir=session_dir,
         fallback_dir=config.data_dir,
         api_manager=api_manager,
+        db=db_module.db,  # Share global DB for reads; session writes go to JSON
     )
 
 

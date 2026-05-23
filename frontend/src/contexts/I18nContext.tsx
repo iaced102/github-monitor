@@ -63,6 +63,8 @@ const translations = {
     "console.title": "Console",
     "console.clear": "Clear",
     "console.close": "Close",
+    "console.minimize": "Minimize",
+    "console.restore": "Restore",
     "console.empty": "No logs yet. Send a message to see AI processing details.",
 
     // Sessions
@@ -119,8 +121,28 @@ const translations = {
     "ccDash.colState": "State",
     "ccDash.downloadReport": "Download Report",
     "ccDash.downloading": "Generating...",
+    "ccDash.totalSeats": "Total Seats",
+    "ccDash.activeUsers": "Active Users",
+    "ccDash.sectionSeatView": "Copilot Seat Overview",
+    "ccDash.noCostCentersNotice": "This enterprise has no cost centers configured. Showing seat activity instead.",
 
-    // Dashboard
+    // Dashboard activity keys
+    "dashboard.interactions": "Interactions",
+    "dashboard.codeGen": "Code Suggestions",
+    "dashboard.codeAccept": "Accepted",
+    "dashboard.locSuggested": "LOC Suggested",
+    "dashboard.daysActive": "Days Active",
+
+    // Seat keys
+    "seats.lastActivity": "Last Active",
+    "seats.editor": "Editor",
+
+    // CSV Dashboard API fallback
+    "csvDash.apiDataSource": "Showing data from API sync (real-time). Upload a Premium Requests CSV for billing details.",
+    "csvDash.apiActivitySource": "Showing activity data from API sync. Upload a Usage Report CSV for billing details.",
+    "csvDash.apiModelActivitySource": "Showing model activity data from API sync (interactions & code suggestions by model). For billing costs, add manage_billing:copilot scope to your PAT or upload a Premium Requests CSV.",
+    "csvDash.netRequests": "Net Requests",
+    "csvDash.uniqueModels": "Models Used",
     "dashboard.title": "Copilot Usage Dashboard",
     "dashboard.filters": "Filters",
     "dashboard.allOrgs": "All Organizations",
@@ -131,6 +153,7 @@ const translations = {
     "dashboard.topUsers": "Top Active Users",
     "dashboard.noData": "No data available. Please sync data first.",
     "dashboard.noSelection": "No org selected",
+    "dashboard.billingScope": "Billing cost data unavailable. Add the manage_billing:copilot scope to your PAT in GitHub Settings → Developer Settings → Personal Access Tokens.",
     "dashboard.totalChats": "Total Chats",
     "dashboard.prSummaries": "PR Summaries",
     "dashboard.activeUserTrends": "Active User Trends",
@@ -280,6 +303,8 @@ const translations = {
     "console.title": "\u63a7\u5236\u53f0",
     "console.clear": "\u6e05\u7a7a",
     "console.close": "\u5173\u95ed",
+    "console.minimize": "\u6700\u5c0f\u5316",
+    "console.restore": "\u6062\u590d",
     "console.empty": "\u6682\u65e0\u65e5\u5fd7\u3002\u53d1\u9001\u6d88\u606f\u540e\u53ef\u67e5\u770b AI \u5904\u7406\u8be6\u60c5\u3002",
 
     // Sessions
@@ -336,6 +361,22 @@ const translations = {
     "ccDash.colState": "\u72b6\u6001",
     "ccDash.downloadReport": "\u4e0b\u8f7d\u62a5\u544a",
     "ccDash.downloading": "\u751f\u6210\u4e2d...",
+    "ccDash.totalSeats": "席位总数",
+    "ccDash.activeUsers": "活跃用户",
+    "ccDash.sectionSeatView": "Copilot 席位概览",
+    "ccDash.noCostCentersNotice": "该企业未配置成本中心，显示席位活动数据。",
+    "dashboard.interactions": "交互次数",
+    "dashboard.codeGen": "代码建议",
+    "dashboard.codeAccept": "已接受",
+    "dashboard.locSuggested": "建议行数",
+    "dashboard.daysActive": "活跃天数",
+    "seats.lastActivity": "最后活跃",
+    "seats.editor": "编辑器",
+    "csvDash.apiDataSource": "数据来自 API 同步（实时）。上传高级请求 CSV 可获取账单详情。",
+    "csvDash.apiActivitySource": "数据来自 API 同步（活动数据）。上传用量报告 CSV 可获取账单详情。",
+    "csvDash.apiModelActivitySource": "显示 API 同步的模型活动数据（按模型的交互次数与代码建议）。如需账单费用，请为 PAT 添加 manage_billing:copilot 权限，或上传高级请求 CSV。",
+    "csvDash.netRequests": "净请求数",
+    "csvDash.uniqueModels": "使用的模型",
 
     // Dashboard
     "dashboard.title": "Copilot \u4f7f\u7528\u6982\u89c8",
@@ -348,6 +389,7 @@ const translations = {
     "dashboard.topUsers": "\u6d3b\u8dc3\u7528\u6237\u6392\u540d",
     "dashboard.noData": "\u6682\u65e0\u6570\u636e\uff0c\u8bf7\u5148\u540c\u6b65\u6570\u636e\u3002",
     "dashboard.noSelection": "\u672a\u9009\u62e9\u7ec4\u7ec7",
+    "dashboard.billingScope": "\u8d26\u5355\u8d39\u7528\u6570\u636e\u4e0d\u53ef\u7528\u3002\u8bf7\u5728 GitHub \u8bbe\u7f6e\u2192\u5f00\u53d1\u8005\u8bbe\u7f6e\u2192\u4e2a\u4eba\u8bbf\u95ee\u4ee4\u724c\u4e2d\u6dfb\u52a0 manage_billing:copilot \u6743\u9650\u3002",
     "dashboard.totalChats": "\u804a\u5929\u603b\u6570",
     "dashboard.prSummaries": "PR \u6458\u8981",
     "dashboard.activeUserTrends": "\u6d3b\u8dc3\u7528\u6237\u8d8b\u52bf",
@@ -497,6 +539,8 @@ const translations = {
     "console.title": "Bảng điều khiển",
     "console.clear": "Xóa",
     "console.close": "Đóng",
+    "console.minimize": "Thu gọn",
+    "console.restore": "Mở rộng",
     "console.empty": "Chưa có nhật ký. Gửi tin nhắn để xem chi tiết xử lý AI.",
 
     // Sessions
@@ -553,6 +597,22 @@ const translations = {
     "ccDash.colState": "Trạng thái",
     "ccDash.downloadReport": "Tải báo cáo",
     "ccDash.downloading": "Đang tạo...",
+    "ccDash.totalSeats": "Tổng số ghế",
+    "ccDash.activeUsers": "Người dùng hoạt động",
+    "ccDash.sectionSeatView": "Tổng quan ghế Copilot",
+    "ccDash.noCostCentersNotice": "Enterprise này chưa cấu hình trung tâm chi phí. Hiển thị dữ liệu hoạt động ghế thay thế.",
+    "dashboard.interactions": "Tương tác",
+    "dashboard.codeGen": "Gợi ý code",
+    "dashboard.codeAccept": "Đã chấp nhận",
+    "dashboard.locSuggested": "Dòng được gợi ý",
+    "dashboard.daysActive": "Ngày hoạt động",
+    "seats.lastActivity": "Hoạt động cuối",
+    "seats.editor": "Trình soạn thảo",
+    "csvDash.apiDataSource": "Dữ liệu từ API đồng bộ (thời gian thực). Upload CSV Yêu cầu cao cấp để xem chi tiết thanh toán.",
+    "csvDash.apiActivitySource": "Dữ liệu hoạt động từ API đồng bộ. Upload CSV Báo cáo sử dụng để xem chi tiết thanh toán.",
+    "csvDash.apiModelActivitySource": "Hiển thị dữ liệu hoạt động theo mô hình từ API đồng bộ (lượt tương tác & gợi ý code theo mô hình). Để xem chi phí thanh toán, thêm scope manage_billing:copilot vào PAT hoặc upload CSV Yêu cầu cao cấp.",
+    "csvDash.netRequests": "Yêu cầu thực",
+    "csvDash.uniqueModels": "Mô hình đã dùng",
 
     // Dashboard
     "dashboard.title": "Bảng điều khiển sử dụng Copilot",
@@ -565,6 +625,7 @@ const translations = {
     "dashboard.topUsers": "Người dùng hoạt động nhất",
     "dashboard.noData": "Không có dữ liệu. Vui lòng đồng bộ dữ liệu trước.",
     "dashboard.noSelection": "Chưa chọn tổ chức",
+    "dashboard.billingScope": "Dữ liệu chi phí billing không khả dụng. Thêm scope manage_billing:copilot vào PAT trong GitHub Settings → Developer Settings → Personal Access Tokens.",
     "dashboard.totalChats": "Tổng chat",
     "dashboard.prSummaries": "Tóm tắt PR",
     "dashboard.activeUserTrends": "Xu hướng người dùng hoạt động",

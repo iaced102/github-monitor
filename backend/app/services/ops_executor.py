@@ -13,6 +13,13 @@ from ..config import config
 if TYPE_CHECKING:
     from .api_manager import APIManager
     from .data_collector import DataCollector
+    from .database import Database
+
+
+def _get_db() -> "Database | None":
+    """Lazy-import the global DB to avoid circular imports."""
+    from . import database
+    return database.db
 
 
 class OpsExecutor:
@@ -30,19 +37,67 @@ class OpsExecutor:
         """Set the data collector for reading seat data."""
         self._data_collector = collector
 
-    async def execute_recommendation(self, recommendation_id: str) -> dict:
-        """Execute a pending recommendation by its ID."""
+    # ------------------------------------------------------------------ #
+    # Internal helpers                                                     #
+    # ------------------------------------------------------------------ #
+
+    def _load_recommendations(self) -> list[dict]:
+        db = _get_db()
+        if db is not None:
+            return db.get_recommendations("all")
+        # JSON fallback
         rec_file = config.data_dir / "recommendations.json"
         if not rec_file.exists():
-            return {"error": "No recommendations found"}
+            return []
+        return json.loads(rec_file.read_text(encoding="utf-8"))
 
-        recs = json.loads(rec_file.read_text(encoding="utf-8"))
-        target = None
+    def _save_recommendations(self, recs: list[dict]):
+        """Used only for JSON fallback mode."""
+        rec_file = config.data_dir / "recommendations.json"
+        rec_file.write_text(json.dumps(recs, indent=2, default=str), encoding="utf-8")
+
+    def _find_recommendation(self, recommendation_id: str) -> dict | None:
+        db = _get_db()
+        if db is not None:
+            return db.get_recommendation(recommendation_id)
+        for r in self._load_recommendations():
+            if r.get("id") == recommendation_id:
+                return r
+        return None
+
+    def _update_recommendation(self, recommendation_id: str, updates: dict):
+        db = _get_db()
+        if db is not None:
+            db.update_recommendation(recommendation_id, updates)
+            return
+        # JSON fallback
+        recs = self._load_recommendations()
         for r in recs:
             if r.get("id") == recommendation_id:
-                target = r
+                r.update(updates)
                 break
+        self._save_recommendations(recs)
 
+    def _append_to_audit_log(self, entry: dict):
+        db = _get_db()
+        if db is not None:
+            db.append_audit_log(entry)
+            return
+        # JSON fallback
+        log_file = config.data_dir / "audit_log.json"
+        existing = []
+        if log_file.exists():
+            existing = json.loads(log_file.read_text(encoding="utf-8"))
+        existing.append(entry)
+        log_file.write_text(json.dumps(existing, indent=2, default=str), encoding="utf-8")
+
+    # ------------------------------------------------------------------ #
+    # Public API                                                           #
+    # ------------------------------------------------------------------ #
+
+    async def execute_recommendation(self, recommendation_id: str) -> dict:
+        """Execute a pending recommendation by its ID."""
+        target = self._find_recommendation(recommendation_id)
         if not target:
             return {"error": f"Recommendation {recommendation_id} not found"}
 
@@ -88,60 +143,57 @@ class OpsExecutor:
                 r = await api.remove_team_membership(org, team_slug, username)
                 api_results.append({"method": "team_level", "username": username, "team": team_slug, "result": r})
 
-            target["status"] = "executed"
-            target["executed_at"] = datetime.now(timezone.utc).isoformat()
-            target["execution_result"] = api_results
+            self._update_recommendation(recommendation_id, {
+                "status": "executed",
+                "executed_at": datetime.now(timezone.utc).isoformat(),
+                "execution_result": json.dumps(api_results, default=str),
+            })
             result["api_result"] = api_results
         else:
-            target["status"] = "executed"
-            target["executed_at"] = datetime.now(timezone.utc).isoformat()
+            self._update_recommendation(recommendation_id, {
+                "status": "executed",
+                "executed_at": datetime.now(timezone.utc).isoformat(),
+            })
 
-        # Save updated recommendations
-        rec_file.write_text(json.dumps(recs, indent=2, default=str), encoding="utf-8")
         result["status"] = "executed"
         return result
 
     async def approve_recommendation(self, recommendation_id: str) -> dict:
         """Mark a recommendation as approved (without executing) and return its data."""
-        rec_file = config.data_dir / "recommendations.json"
-        if not rec_file.exists():
-            return {"error": "No recommendations found"}
+        target = self._find_recommendation(recommendation_id)
+        if not target:
+            return {"error": f"Recommendation {recommendation_id} not found"}
+        if target.get("status") != "pending":
+            return {"error": f"Recommendation is already {target.get('status')}"}
 
-        recs = json.loads(rec_file.read_text(encoding="utf-8"))
-        for r in recs:
-            if r.get("id") == recommendation_id:
-                if r.get("status") != "pending":
-                    return {"error": f"Recommendation is already {r.get('status')}"}
-                r["status"] = "approved"
-                r["approved_at"] = datetime.now(timezone.utc).isoformat()
-                rec_file.write_text(json.dumps(recs, indent=2, default=str), encoding="utf-8")
-                return {"recommendation_id": recommendation_id, "status": "approved", "recommendation": r}
-
-        return {"error": f"Recommendation {recommendation_id} not found"}
+        updates = {
+            "status": "approved",
+            "approved_at": datetime.now(timezone.utc).isoformat(),
+        }
+        self._update_recommendation(recommendation_id, updates)
+        target.update(updates)
+        return {"recommendation_id": recommendation_id, "status": "approved", "recommendation": target}
 
     async def reject_recommendation(self, recommendation_id: str) -> dict:
         """Reject a pending recommendation."""
-        rec_file = config.data_dir / "recommendations.json"
-        if not rec_file.exists():
-            return {"error": "No recommendations found"}
+        target = self._find_recommendation(recommendation_id)
+        if not target:
+            return {"error": f"Recommendation {recommendation_id} not found"}
 
-        recs = json.loads(rec_file.read_text(encoding="utf-8"))
-        for r in recs:
-            if r.get("id") == recommendation_id:
-                r["status"] = "rejected"
-                r["rejected_at"] = datetime.now(timezone.utc).isoformat()
-                rec_file.write_text(json.dumps(recs, indent=2, default=str), encoding="utf-8")
-                return {"recommendation_id": recommendation_id, "status": "rejected"}
-
-        return {"error": f"Recommendation {recommendation_id} not found"}
+        self._update_recommendation(recommendation_id, {
+            "status": "rejected",
+            "rejected_at": datetime.now(timezone.utc).isoformat(),
+        })
+        return {"recommendation_id": recommendation_id, "status": "rejected"}
 
     def get_pending_recommendations(self) -> list:
         """Get all pending recommendations."""
-        rec_file = config.data_dir / "recommendations.json"
-        if not rec_file.exists():
-            return []
-        recs = json.loads(rec_file.read_text(encoding="utf-8"))
-        return [r for r in recs if r.get("status") == "pending"]
+        db = _get_db()
+        if db is not None:
+            return db.get_recommendations("pending")
+        # JSON fallback
+        return [r for r in self._load_recommendations() if r.get("status") == "pending"]
 
 
 ops_executor = OpsExecutor()
+

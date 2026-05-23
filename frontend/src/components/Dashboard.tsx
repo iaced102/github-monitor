@@ -105,8 +105,8 @@ export function Dashboard({ refreshKey }: Props) {
   const acceptRateTrend = useMemo(() => {
     return filteredTrend.map((d) => ({
       day: d.day,
-      accept_rate: d.code_gen > 0 ? Math.round((d.code_accept / d.code_gen) * 100) : 0,
-      loc_accept_rate: d.loc_suggested > 0 ? Math.round((d.loc_accepted / d.loc_suggested) * 100) : 0,
+      accept_rate: d.code_gen > 0 ? Math.min(100, Math.round((d.code_accept / d.code_gen) * 100)) : 0,
+      loc_accept_rate: d.loc_suggested > 0 ? Math.min(100, Math.round((d.loc_accepted / d.loc_suggested) * 100)) : 0,
     }));
   }, [filteredTrend]);
 
@@ -150,6 +150,12 @@ export function Dashboard({ refreshKey }: Props) {
 
       {hasData && (
         <>
+          {/* Billing scope error banner */}
+          {data.kpi.billing_scope_error && (
+            <div className="billing-scope-banner">
+              ⚠️ {t("dashboard.billingScope")}
+            </div>
+          )}
           {/* ===== KPI Cards ===== */}
           <div className="dashboard-kpi">
             <div className="stat-card">

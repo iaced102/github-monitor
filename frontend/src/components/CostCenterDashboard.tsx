@@ -2,7 +2,7 @@ import { useState, useCallback, useRef, useEffect } from "react";
 import { useI18n } from "../contexts/I18nContext";
 import { useUIState } from "../contexts/UIStateContext";
 import { useCostCenterDashboard } from "../hooks/useData";
-import type { CostCenter, UserCostCenterEntry } from "../types";
+import type { CostCenter, UserCostCenterEntry, SeatFallbackUser } from "../types";
 
 interface Props {
   refreshKey: number;
@@ -202,6 +202,60 @@ function UserMapTable({ users }: { users: UserCostCenterEntry[] }) {
   );
 }
 
+/* ---------- Seat Fallback table (shown when no cost centers configured) ---------- */
+function SeatFallbackTable({ users }: { users: SeatFallbackUser[] }) {
+  const { t } = useI18n();
+  if (!users.length) return null;
+
+  const formatDate = (d: string | null) => {
+    if (!d) return "—";
+    return d.slice(0, 10);
+  };
+
+  return (
+    <div className="cc-table-wrap">
+      <table className="cc-table">
+        <thead>
+          <tr>
+            <th className="cc-th">#</th>
+            <th className="cc-th">{t("ccDash.colUser")}</th>
+            <th className="cc-th">{t("seats.lastActivity")}</th>
+            <th className="cc-th">{t("dashboard.interactions")}</th>
+            <th className="cc-th">{t("dashboard.codeGen")}</th>
+            <th className="cc-th">{t("dashboard.codeAccept")}</th>
+            <th className="cc-th">{t("dashboard.acceptRate")}</th>
+            <th className="cc-th">{t("dashboard.daysActive")}</th>
+            <th className="cc-th">{t("seats.editor")}</th>
+          </tr>
+        </thead>
+        <tbody>
+          {users.map((u, i) => (
+            <tr key={u.login} className="cc-table-row">
+              <td className="cc-td">{i + 1}</td>
+              <td className="cc-td">
+                <div className="cc-member-info">
+                  {u.avatar_url
+                    ? <img src={u.avatar_url} alt={u.login} className="cc-member-avatar" />
+                    : <div className="cc-member-avatar cc-member-avatar-placeholder" />}
+                  <span className="cc-member-login">{u.login}</span>
+                  {u.team && <span className="dash-badge dash-badge-muted" style={{ marginLeft: 6 }}>{u.team}</span>}
+                </div>
+              </td>
+              <td className="cc-td">{formatDate(u.last_activity_at)}</td>
+              <td className="cc-td">{u.interactions.toLocaleString()}</td>
+              <td className="cc-td">{u.code_gen.toLocaleString()}</td>
+              <td className="cc-td">{u.code_accept.toLocaleString()}</td>
+              <td className="cc-td">{u.acceptance_rate}%</td>
+              <td className="cc-td">{u.days_active}</td>
+              <td className="cc-td">{u.last_activity_editor || "—"}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
 /* ---------- Main component ---------- */
 export function CostCenterDashboard({ refreshKey: _ }: Props) {
   const { t } = useI18n();
@@ -258,6 +312,9 @@ export function CostCenterDashboard({ refreshKey: _ }: Props) {
   if (!data || data.no_data) {
     return <div className="dashboard-empty">{t("ccDash.noData")}</div>;
   }
+
+  const hasCostCenters = data.cost_centers.length > 0;
+  const seatFallback = data.seat_fallback;
 
   const enterpriseOptions = data.enterprises.map((e) => e.slug);
 
@@ -334,12 +391,20 @@ export function CostCenterDashboard({ refreshKey: _ }: Props) {
       {/* KPI cards */}
       <div className="dashboard-kpi">
         <div className="stat-card">
-          <div className="stat-value">{data.total_cost_centers}</div>
-          <div className="stat-label">{t("ccDash.totalCostCenters")}</div>
+          <div className="stat-value">
+            {hasCostCenters ? data.total_cost_centers : (seatFallback?.total_seats ?? 0)}
+          </div>
+          <div className="stat-label">
+            {hasCostCenters ? t("ccDash.totalCostCenters") : t("ccDash.totalSeats")}
+          </div>
         </div>
         <div className="stat-card">
-          <div className="stat-value">{data.total_unique_members}</div>
-          <div className="stat-label">{t("ccDash.totalMembers")}</div>
+          <div className="stat-value">
+            {hasCostCenters ? data.total_unique_members : (seatFallback?.users.filter(u => u.interactions + u.code_gen > 0).length ?? 0)}
+          </div>
+          <div className="stat-label">
+            {hasCostCenters ? t("ccDash.totalMembers") : t("ccDash.activeUsers")}
+          </div>
         </div>
         <div className="stat-card">
           <div className="stat-value">{data.enterprise_name || data.selected_enterprise}</div>
@@ -347,7 +412,18 @@ export function CostCenterDashboard({ refreshKey: _ }: Props) {
         </div>
       </div>
 
-      {/* Cost Centers → Members table */}
+      {/* When no cost centers: show seat fallback table */}
+      {!hasCostCenters && seatFallback?.has_data && (
+        <Section sectionKey="seatfallback" title={t("ccDash.sectionSeatView")}>
+          <div style={{ marginBottom: 8, padding: "6px 12px", background: "var(--bg-secondary)", border: "1px solid var(--border)", borderRadius: 8, fontSize: 12, color: "var(--text-muted)" }}>
+            {t("ccDash.noCostCentersNotice")}
+          </div>
+          <SeatFallbackTable users={seatFallback.users} />
+        </Section>
+      )}
+
+      {/* Cost Centers → Members table (only when cost centers exist) */}
+      {hasCostCenters && (
       <Section sectionKey="costcenters" title={t("ccDash.sectionCostCenters")}>
         <div className="cc-table-wrap">
           <table className="cc-table">
@@ -367,11 +443,14 @@ export function CostCenterDashboard({ refreshKey: _ }: Props) {
           </table>
         </div>
       </Section>
+      )}
 
-      {/* User → Cost Centers mapping */}
+      {/* User → Cost Centers mapping (only when cost centers exist) */}
+      {hasCostCenters && (
       <Section sectionKey="usermap" title={t("ccDash.sectionUserMap")}>
         <UserMapTable users={data.user_map} />
       </Section>
+      )}
     </div>
   );
 }

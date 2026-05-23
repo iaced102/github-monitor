@@ -20,6 +20,12 @@ if TYPE_CHECKING:
     from ..services.api_manager import APIManager
 
 
+def _get_db():
+    """Lazy-import the global DB to avoid circular imports at module load time."""
+    from ..services import database
+    return database.db
+
+
 class BatchRemoveSeatsParams(BaseModel):
     org: str = Field(description="Organization name")
     usernames: list[str] = Field(description="List of GitHub usernames to remove")
@@ -39,7 +45,11 @@ class GetRecommendationsParams(BaseModel):
 
 
 def _append_audit_log(entry: dict):
-    """Append an entry to the audit log file."""
+    """Append an entry to the audit log (DB if available, else JSON file)."""
+    db = _get_db()
+    if db is not None:
+        db.append_audit_log(entry)
+        return
     log_file = config.data_dir / "audit_log.json"
     existing = []
     if log_file.exists():
@@ -132,18 +142,28 @@ def create_action_tools(api_manager: APIManager | None = None, collector: DataCo
             "status": "pending",
         }
 
-        # Save to recommendations file (global)
-        rec_file = config.data_dir / "recommendations.json"
-        existing = []
-        if rec_file.exists():
-            existing = json.loads(rec_file.read_text(encoding="utf-8"))
-        existing.append(rec)
-        rec_file.write_text(json.dumps(existing, indent=2, default=str), encoding="utf-8")
+        db = _get_db()
+        if db is not None:
+            db.save_recommendation(rec)
+        else:
+            # JSON fallback
+            rec_file = config.data_dir / "recommendations.json"
+            existing = []
+            if rec_file.exists():
+                existing = json.loads(rec_file.read_text(encoding="utf-8"))
+            existing.append(rec)
+            rec_file.write_text(json.dumps(existing, indent=2, default=str), encoding="utf-8")
 
         return json.dumps({"recorded": True, "recommendation": rec})
 
     @define_tool(description="Get recorded recommendations. Can filter by status (pending/approved/rejected/executed/all).")
     def get_recommendations(params: GetRecommendationsParams) -> str:
+        db = _get_db()
+        if db is not None:
+            recs = db.get_recommendations(params.status)
+            return json.dumps({"recommendations": recs, "count": len(recs)})
+
+        # JSON fallback
         rec_file = config.data_dir / "recommendations.json"
         if not rec_file.exists():
             return json.dumps({"recommendations": [], "count": 0})

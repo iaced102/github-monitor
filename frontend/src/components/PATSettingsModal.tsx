@@ -114,7 +114,9 @@ export function PATSettingsModal({ onClose, onPATChange }: Props) {
                   <div className="pat-item-info">
                     <div className="pat-item-user">
                       <strong>{pat.user_login || "Validating..."}</strong>
-                      <span className="pat-item-orgs">{pat.orgs?.length || 0} orgs</span>
+                      {(pat.orgs?.length > 0 || !pat.enterprise_slugs?.length) && (
+                        <span className="pat-item-orgs">{pat.orgs?.length || 0} orgs</span>
+                      )}
                       {pat.enterprise_slugs?.length > 0 && (
                         <span className="pat-item-enterprise">
                           {pat.enterprise_slugs.join(", ")}

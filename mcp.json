@@ -4,6 +4,10 @@
       "command": "python",
       "args": ["-m", "backend.app.mcp_server"],
       "env": {}
+    },
+    "playwright": {
+      "command": "npx",
+      "args": ["@playwright/mcp@latest"]
     }
   }
 }

@@ -91,6 +91,7 @@ export interface DashboardKPI {
   utilization_pct: number;
   monthly_cost: number;
   monthly_waste: number;
+  billing_scope_error?: boolean;
 }
 
 export interface SeatRecord {
@@ -215,12 +216,64 @@ export interface UsageReportSection {
 export interface CsvDashboardData {
   premium_csv: PremiumCsvSection;
   usage_report: UsageReportSection;
+  api_usage: ApiUsageSection;
+  api_premium: ApiPremiumSection;
   filters: {
     orgs: string[];
     cost_centers: string[];
     products: string[];
     skus: string[];
   };
+}
+
+export interface ApiUsageUser {
+  user: string;
+  org: string;
+  interactions: number;
+  code_gen: number;
+  code_accept: number;
+  loc_suggested: number;
+  loc_accepted: number;
+  days_active: number;
+  acceptance_rate: number;
+  ides: { ide: string; count: number }[];
+}
+
+export interface ApiUsageSection {
+  has_data: boolean;
+  date_range: { start: string; end: string };
+  total_users: number;
+  users: ApiUsageUser[];
+}
+
+export interface ApiPremiumSection {
+  has_data: boolean;
+  source?: "billing" | "activity";
+  models: { model: string; gross_qty: number; net_qty: number; gross_amount: number; net_amount: number; interactions?: number; code_gen?: number; code_accept?: number }[];
+  total_requests: number;
+  net_requests: number;
+  total_cost: number;
+}
+
+export interface SeatFallbackUser {
+  login: string;
+  avatar_url: string;
+  last_activity_at: string | null;
+  last_activity_editor: string | null;
+  plan_type: string;
+  team: string;
+  interactions: number;
+  code_gen: number;
+  code_accept: number;
+  loc_suggested: number;
+  days_active: number;
+  acceptance_rate: number;
+}
+
+export interface SeatFallback {
+  has_data: boolean;
+  total_seats: number;
+  users: SeatFallbackUser[];
 }
 
 // Cost Center dashboard types
@@ -256,5 +309,6 @@ export interface CostCenterDashboardData {
   total_cost_centers: number;
   total_unique_members: number;
   user_map: UserCostCenterEntry[];
+  seat_fallback?: SeatFallback;
   no_data: boolean;
 }

@@ -73,6 +73,7 @@ export function ConsolePanel({ entries, onClose, onClear }: Props) {
   const bottomRef = useRef<HTMLDivElement>(null);
   const [autoScroll, setAutoScroll] = useState(true);
   const [height, setHeight] = useState(280);
+  const [minimized, setMinimized] = useState(false);
   const isDragging = useRef(false);
   const startY = useRef(0);
   const startHeight = useRef(0);
@@ -124,31 +125,42 @@ export function ConsolePanel({ entries, onClose, onClear }: Props) {
   }, []);
 
   return (
-    <div className="console-panel" style={{ height }}>
-      <div className="console-resizer" onMouseDown={onResizeMouseDown} />
+    <div className="console-panel" style={{ height: minimized ? 36 : height }}>
+      <div className="console-resizer" onMouseDown={minimized ? undefined : onResizeMouseDown} style={{ cursor: minimized ? "default" : undefined }} />
       <div className="console-header">
         <div className="console-header-left">
           <span className="console-title-text">{t("console.title")}</span>
           <span className="console-count">{entries.length}</span>
         </div>
         <div className="console-header-right">
-          <button className="console-btn" onClick={onClear} title={t("console.clear")}>
-            {t("console.clear")}
+          {!minimized && (
+            <button className="console-btn" onClick={onClear} title={t("console.clear")}>
+              {t("console.clear")}
+            </button>
+          )}
+          <button
+            className="console-btn"
+            onClick={() => setMinimized((v) => !v)}
+            title={minimized ? t("console.restore") : t("console.minimize")}
+          >
+            {minimized ? "\u25B2" : "\u25BC"}
           </button>
           <button className="console-btn console-btn-close" onClick={onClose} title={t("console.close")}>
             &times;
           </button>
         </div>
       </div>
-      <div className="console-body" onScroll={handleScroll}>
-        {entries.length === 0 && (
-          <div className="console-empty">{t("console.empty")}</div>
-        )}
-        {entries.map((entry) => (
-          <ConsoleEntryRow key={entry.id} entry={entry} />
-        ))}
-        <div ref={bottomRef} />
-      </div>
+      {!minimized && (
+        <div className="console-body" onScroll={handleScroll}>
+          {entries.length === 0 && (
+            <div className="console-empty">{t("console.empty")}</div>
+          )}
+          {entries.map((entry) => (
+            <ConsoleEntryRow key={entry.id} entry={entry} />
+          ))}
+          <div ref={bottomRef} />
+        </div>
+      )}
     </div>
   );
 }

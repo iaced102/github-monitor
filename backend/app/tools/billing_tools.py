@@ -23,28 +23,53 @@ def create_billing_tools(collector: DataCollector) -> list:
 
     @define_tool(description="Get cost overview for Copilot across organizations. Shows total seats, active seats, wasted seats, monthly cost, and estimated waste.")
     def get_cost_overview(params: GetCostOverviewParams) -> str:
-        orgs_to_check = [params.org] if params.org else list(collector.load_all_latest("billing").keys())
+        # Get orgs from billing data; fall back to seats data if billing unavailable
+        billing_orgs = list(collector.load_all_latest("billing").keys())
+        seats_orgs = list(collector.load_all_latest("seats").keys())
+        orgs_to_check = [params.org] if params.org else (billing_orgs or seats_orgs)
         overview = []
 
         for org in orgs_to_check:
             billing = collector.load_latest("billing", org)
             seats_data = collector.load_latest("seats", org)
 
-            if not billing:
+            if not billing and not seats_data:
                 continue
 
-            price = billing.get("_detected_price_per_seat", 19.0)
-            plan_type = billing.get("_detected_plan_type", "business")
-            seat_breakdown = billing.get("seat_breakdown", {})
-            total = seat_breakdown.get("total", 0)
-            active = seat_breakdown.get("active_this_cycle", 0)
-            pending_cancel = seat_breakdown.get("pending_cancellation", 0)
-            inactive = total - active
+            price = 19.0
+            plan_type = "business"
+            total = 0
+            active = 0
+            pending_cancel = 0
 
+            if billing:
+                price = billing.get("_detected_price_per_seat", 19.0)
+                plan_type = billing.get("_detected_plan_type", "business")
+                seat_breakdown = billing.get("seat_breakdown", {})
+                total = seat_breakdown.get("total", 0)
+                active = seat_breakdown.get("active_this_cycle", 0)
+                pending_cancel = seat_breakdown.get("pending_cancellation", 0)
+            elif seats_data:
+                # Fallback: derive from seats data when billing is unavailable
+                from datetime import datetime, timezone as tz
+                now = datetime.now(tz.utc)
+                seats = seats_data.get("seats", [])
+                total = seats_data.get("total_seats", len(seats))
+                for s in seats:
+                    last = s.get("last_activity_at")
+                    if last:
+                        try:
+                            d = (now - datetime.fromisoformat(last.replace("Z", "+00:00"))).days
+                            if d < 30:
+                                active += 1
+                        except (ValueError, TypeError):
+                            pass
+
+            inactive = total - active
             monthly_cost = total * price
             waste_cost = inactive * price
 
-            org_overview = {
+            overview.append({
                 "org": org,
                 "plan_type": plan_type,
                 "price_per_seat": price,
@@ -55,8 +80,8 @@ def create_billing_tools(collector: DataCollector) -> list:
                 "monthly_cost": monthly_cost,
                 "estimated_monthly_waste": waste_cost,
                 "utilization_pct": round(active / total * 100, 1) if total > 0 else 0,
-            }
-            overview.append(org_overview)
+                "billing_data_available": billing is not None,
+            })
 
         grand_total_cost = sum(o["monthly_cost"] for o in overview)
         grand_total_waste = sum(o["estimated_monthly_waste"] for o in overview)

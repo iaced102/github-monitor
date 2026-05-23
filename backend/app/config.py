@@ -21,6 +21,7 @@ class AppConfig:
     def __init__(self):
         self.github_api_base: str = "https://api.github.com"
         self.data_dir: Path = DATA_DIR
+        self.db_path: Path = DATA_DIR / "octofinance.db"
         # Ensure data directories exist
         self.data_dir.mkdir(parents=True, exist_ok=True)
         for sub in ("seats", "usage", "usage_users", "metrics", "billing", "premium_requests", "premium_usage_csv"):

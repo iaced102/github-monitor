@@ -43,18 +43,46 @@ class AddTeamMemberParams(BaseModel):
 def create_seat_tools(collector: DataCollector, api_manager: APIManager | None = None) -> list:
     """Create seat tools bound to a specific DataCollector and optional APIManager."""
 
-    @define_tool(description="Get all Copilot seat assignments. Returns user list with activity info, assigned teams, and last active dates.")
+    @define_tool(description="Get Copilot seat summary across organizations: total seats, active/inactive counts, per-org breakdown. Does not return full user list (use find_inactive_users for user details).")
     def get_all_seats(params: GetAllSeatsParams) -> str:
+        from datetime import datetime, timezone as tz
+        now = datetime.now(tz.utc)
+
+        def _summarize(org: str, data: dict) -> dict:
+            seats = data.get("seats", [])
+            total = data.get("total_seats", len(seats))
+            active = 0
+            for s in seats:
+                last = s.get("last_activity_at")
+                if last:
+                    try:
+                        if (now - datetime.fromisoformat(last.replace("Z", "+00:00"))).days < 30:
+                            active += 1
+                    except (ValueError, TypeError):
+                        pass
+            return {
+                "org": org,
+                "total_seats": total,
+                "active_seats_30d": active,
+                "inactive_seats_30d": total - active,
+            }
+
         if params.org:
             data = collector.load_latest("seats", params.org)
             if not data:
                 return json.dumps({"error": f"No seat data found for org '{params.org}'. Try syncing first."})
-            return json.dumps(data, default=str)
+            return json.dumps(_summarize(params.org, data))
         else:
             all_data = collector.load_all_latest("seats")
             if not all_data:
                 return json.dumps({"error": "No seat data found. Try syncing first."})
-            return json.dumps(all_data, default=str)
+            orgs = [_summarize(org, data) for org, data in all_data.items()]
+            return json.dumps({
+                "grand_total_seats": sum(o["total_seats"] for o in orgs),
+                "grand_active_seats_30d": sum(o["active_seats_30d"] for o in orgs),
+                "grand_inactive_seats_30d": sum(o["inactive_seats_30d"] for o in orgs),
+                "organizations": orgs,
+            })
 
     @define_tool(description="Find Copilot users who have been inactive for N days. Returns list of inactive users with their last activity date and cost impact.")
     def find_inactive_users(params: FindInactiveUsersParams) -> str:
@@ -97,10 +125,13 @@ def create_seat_tools(collector: DataCollector, api_manager: APIManager | None =
 
         inactive_users.sort(key=lambda x: x["days_inactive"], reverse=True)
         total_waste = sum(u["monthly_cost"] for u in inactive_users)
-
+        # Limit to top 50 to avoid hitting tool result size limits
+        truncated = len(inactive_users) > 50
         return json.dumps({
-            "inactive_users": inactive_users,
+            "inactive_users": inactive_users[:50],
             "total_count": len(inactive_users),
+            "shown_count": min(len(inactive_users), 50),
+            "truncated": truncated,
             "total_monthly_waste": total_waste,
             "threshold_days": params.days,
         })

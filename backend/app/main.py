@@ -17,6 +17,9 @@ from .routers.auth import AUTH_PUBLIC_PATHS, is_authenticated
 from .services.api_manager import api_manager
 from .services.copilot_engine import copilot_engine
 from .services.data_collector import data_collector
+from .services.database import Database
+from .config import config
+from .services import database as db_module
 from .services.ops_executor import ops_executor
 from .services.pat_manager import pat_manager
 from .services.sync_manager import sync_manager
@@ -26,6 +29,19 @@ from .services.sync_manager import sync_manager
 async def lifespan(app: FastAPI):
     """Application startup/shutdown lifecycle."""
     print("[OctoFinance] Starting up...")
+
+    # Initialize SQLite database
+    print("[OctoFinance] Initializing database...")
+    db = Database(config.db_path)
+    db_module.db = db
+    data_collector.set_db(db)
+    print(f"[OctoFinance] Database ready at {config.db_path}")
+
+    # Migrate existing JSON data into the database (one-time, safe to re-run)
+    try:
+        db.migrate_from_json_dir(config.data_dir)
+    except Exception as e:
+        print(f"[OctoFinance] Data migration warning: {e}")
 
     # Load PATs from file (auto-migrates GITHUB_PAT env var if needed)
     pats_list = pat_manager.load()

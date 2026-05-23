@@ -204,12 +204,16 @@ class GitHubAPI:
         """
         Get Copilot billing info for an org.
         Returns None if org doesn't have Copilot or PAT lacks permissions.
+        Returns a dict with _billing_scope_error=True if PAT is missing the
+        manage_billing:copilot scope (HTTP 403).
         Also auto-detects plan type and pricing.
         """
         try:
             resp = await self.client.get(f"/orgs/{org}/copilot/billing")
             if resp.status_code == 404:
                 return None
+            if resp.status_code == 403:
+                return {"_billing_scope_error": True, "_detected_price_per_seat": 0, "_detected_plan_type": "unknown"}
             resp.raise_for_status()
             billing = resp.json()
 
@@ -458,6 +462,100 @@ class GitHubAPI:
             f"/enterprises/{enterprise}/copilot/metrics/reports/users-1-day",
             params={"day": day},
         )
+
+    # =========================================================================
+    # Enterprise-level Copilot (Billing, Seats, Metrics)
+    # =========================================================================
+
+    async def get_enterprise_copilot_billing(self, enterprise: str) -> dict | None:
+        """Get Copilot billing info for an enterprise.
+        Returns a dict with _billing_scope_error=True if PAT is missing the
+        manage_billing:copilot scope (HTTP 403).
+        API: GET /enterprises/{enterprise}/copilot/billing
+        """
+        try:
+            resp = await self.client.get(f"/enterprises/{enterprise}/copilot/billing")
+            if resp.status_code == 404:
+                return None
+            if resp.status_code == 403:
+                return {"_billing_scope_error": True, "_detected_price_per_seat": 0, "_detected_plan_type": "unknown"}
+            resp.raise_for_status()
+            billing = resp.json()
+            plan_type = billing.get("plan_type", "enterprise")
+            if plan_type in COPILOT_PRICING:
+                billing["_detected_price_per_seat"] = COPILOT_PRICING[plan_type]
+            else:
+                billing["_detected_price_per_seat"] = COPILOT_PRICING["enterprise"]
+            billing["_detected_plan_type"] = plan_type
+            return billing
+        except httpx.HTTPStatusError:
+            return None
+
+    async def get_enterprise_copilot_seats(self, enterprise: str) -> dict | None:
+        """Get all Copilot seat assignments for an enterprise.
+        API: GET /enterprises/{enterprise}/copilot/billing/seats
+        """
+        try:
+            all_seats = []
+            page = 1
+            total = 0
+            while True:
+                resp = await self.client.get(
+                    f"/enterprises/{enterprise}/copilot/billing/seats",
+                    params={"per_page": 100, "page": page},
+                )
+                if resp.status_code in (404, 403):
+                    return None
+                resp.raise_for_status()
+                data = resp.json()
+                total = data.get("total_seats", 0)
+                seats = data.get("seats", [])
+                if not seats:
+                    break
+                all_seats.extend(seats)
+                page += 1
+            return {"total_seats": total, "seats": all_seats}
+        except httpx.HTTPStatusError:
+            return None
+
+    async def get_enterprise_copilot_metrics(self, enterprise: str) -> list | None:
+        """Get Copilot metrics for an enterprise (legacy metrics API).
+        API: GET /enterprises/{enterprise}/copilot/metrics
+        """
+        try:
+            resp = await self.client.get(f"/enterprises/{enterprise}/copilot/metrics")
+            if resp.status_code in (404, 403):
+                return None
+            resp.raise_for_status()
+            return resp.json()
+        except httpx.HTTPStatusError:
+            return None
+
+    async def get_enterprise_premium_request_usage(
+        self,
+        enterprise: str,
+        year: int | None = None,
+        month: int | None = None,
+    ) -> dict | None:
+        """Get premium request usage for an enterprise.
+        API: GET /enterprises/{enterprise}/settings/billing/premium_request/usage
+        """
+        try:
+            params: dict = {}
+            if year is not None:
+                params["year"] = year
+            if month is not None:
+                params["month"] = month
+            resp = await self.client.get(
+                f"/enterprises/{enterprise}/settings/billing/premium_request/usage",
+                params=params,
+            )
+            if resp.status_code in (404, 403):
+                return None
+            resp.raise_for_status()
+            return resp.json()
+        except httpx.HTTPStatusError:
+            return None
 
     # =========================================================================
     # Copilot Seat Management (Operations)
