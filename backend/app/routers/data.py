@@ -203,26 +203,35 @@ async def get_dashboard(orgs: str = Query(default="")):
     monthly_waste = 0.0
     available_orgs: list[str] = []
 
+    from datetime import datetime, timezone
+    _now = datetime.now(timezone.utc)
+    has_billing_error = False
+
     for org_name in selected:
         billing = data_collector.load_latest("billing", org_name)
         seats_data = data_collector.load_latest("seats", org_name)
         if not billing and not seats_data:
             continue
         available_orgs.append(org_name)
-        if billing:
-            # Skip scope-error placeholders in KPI calculation
-            if billing.get("_billing_scope_error"):
-                available_orgs.append(org_name)
-                continue
+        if billing and not billing.get("_billing_scope_error"):
             price = billing.get("_detected_price_per_seat", 19.0)
             sb = billing.get("seat_breakdown", {})
             s = sb.get("total", 0)
             a = sb.get("active_this_cycle", 0)
         else:
-            # No billing data — derive seat count from seats endpoint, cost from default enterprise price
-            price = 39.0
-            s = seats_data.get("total_seats", 0)
+            # No billing data or 403 scope error — derive from seats + activity dates
+            has_billing_error = True
+            price = (billing.get("_detected_price_per_seat", 39.0) if billing else 39.0)
+            s = seats_data.get("total_seats", 0) if seats_data else 0
             a = 0
+            for seat in (seats_data or {}).get("seats", []):
+                last = seat.get("last_activity_at")
+                if last:
+                    try:
+                        if (_now - datetime.fromisoformat(last.replace("Z", "+00:00"))).days < 30:
+                            a += 1
+                    except (ValueError, TypeError):
+                        pass
         total_seats += s
         active_seats += a
         monthly_cost += s * price
@@ -230,13 +239,7 @@ async def get_dashboard(orgs: str = Query(default="")):
 
     inactive_seats = total_seats - active_seats
     utilization_pct = round(active_seats / total_seats * 100, 1) if total_seats > 0 else 0
-
-    # Check if any scope errors were encountered (billing 403)
-    billing_scope_error = any(
-        data_collector.load_latest("billing", o) and
-        data_collector.load_latest("billing", o).get("_billing_scope_error")
-        for o in available_orgs
-    )
+    billing_scope_error = has_billing_error
 
     kpi = {
         "total_seats": total_seats,
