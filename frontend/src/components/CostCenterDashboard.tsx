@@ -3,6 +3,7 @@ import { useI18n } from "../contexts/I18nContext";
 import { useUIState } from "../contexts/UIStateContext";
 import { useCostCenterDashboard } from "../hooks/useData";
 import type { CostCenter, UserCostCenterEntry, SeatFallbackUser } from "../types";
+import { InfoIcon } from "./InfoIcon";
 
 interface Props {
   refreshKey: number;
@@ -65,8 +66,8 @@ function MultiSelect({
 }
 
 /* ---------- Collapsible section ---------- */
-function Section({ sectionKey, title, defaultOpen = true, children }: {
-  sectionKey: string; title: string; defaultOpen?: boolean; children: React.ReactNode;
+function Section({ sectionKey, title, infoKey, defaultOpen = true, children }: {
+  sectionKey: string; title: string; infoKey?: string; defaultOpen?: boolean; children: React.ReactNode;
 }) {
   const { dashboardSections, patch } = useUIState();
   const open = dashboardSections[`cc_${sectionKey}`] ?? defaultOpen;
@@ -78,6 +79,7 @@ function Section({ sectionKey, title, defaultOpen = true, children }: {
       <div className="dash-section-header" onClick={toggle}>
         <span className="dash-section-chevron">{open ? "▼" : "▶"}</span>
         <h3 className="dash-section-title">{title}</h3>
+        {infoKey && <InfoIcon id={infoKey} />}
       </div>
       {open && <div className="dash-section-body">{children}</div>}
     </div>
@@ -291,7 +293,7 @@ export function CostCenterDashboard({ refreshKey: _ }: Props) {
   }, [enterprise]);
 
   const { data, loading } = useCostCenterDashboard({
-    enterprise, costCenters, state, search: ui.ccDashSearch,
+    enterprise, costCenters, state, search: ui.ccDashSearch, groupId: ui.selectedGroupId,
   });
 
   const setEnterprise = useCallback(
@@ -414,7 +416,7 @@ export function CostCenterDashboard({ refreshKey: _ }: Props) {
 
       {/* When no cost centers: show seat fallback table */}
       {!hasCostCenters && seatFallback?.has_data && (
-        <Section sectionKey="seatfallback" title={t("ccDash.sectionSeatView")}>
+        <Section sectionKey="seatfallback" title={t("ccDash.sectionSeatView")} infoKey="cc_section_seatfallback">
           <div style={{ marginBottom: 8, padding: "6px 12px", background: "var(--bg-secondary)", border: "1px solid var(--border)", borderRadius: 8, fontSize: 12, color: "var(--text-muted)" }}>
             {t("ccDash.noCostCentersNotice")}
           </div>
@@ -424,7 +426,7 @@ export function CostCenterDashboard({ refreshKey: _ }: Props) {
 
       {/* Cost Centers → Members table (only when cost centers exist) */}
       {hasCostCenters && (
-      <Section sectionKey="costcenters" title={t("ccDash.sectionCostCenters")}>
+      <Section sectionKey="costcenters" title={t("ccDash.sectionCostCenters")} infoKey="cc_section_costcenters">
         <div className="cc-table-wrap">
           <table className="cc-table">
             <thead>
@@ -447,7 +449,7 @@ export function CostCenterDashboard({ refreshKey: _ }: Props) {
 
       {/* User → Cost Centers mapping (only when cost centers exist) */}
       {hasCostCenters && (
-      <Section sectionKey="usermap" title={t("ccDash.sectionUserMap")}>
+      <Section sectionKey="usermap" title={t("ccDash.sectionUserMap")} infoKey="cc_section_usermap">
         <UserMapTable users={data.user_map} />
       </Section>
       )}

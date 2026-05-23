@@ -2,6 +2,7 @@ import { useState, useCallback, useRef, useEffect, type ReactNode } from "react"
 import { ThemeProvider } from "./contexts/ThemeContext";
 import { I18nProvider, useI18n } from "./contexts/I18nContext";
 import { UIStateProvider, useUIState } from "./contexts/UIStateContext";
+import { AuthProvider, useCurrentUser } from "./contexts/AuthContext";
 import { useChat } from "./hooks/useChat";
 import { useSessions } from "./hooks/useSessions";
 import { useSyncStream } from "./hooks/useSyncStream";
@@ -14,6 +15,9 @@ import { OrgSelector } from "./components/OrgSelector";
 import { ActionPanel } from "./components/ActionPanel";
 import { StatusBar } from "./components/StatusBar";
 import { LoginPage } from "./components/LoginPage";
+import { AlertPanel, AlertBadge } from "./components/AlertPanel";
+import { ReportHistoryPanel } from "./components/ReportHistoryPanel";
+import { BudgetPanel } from "./components/BudgetPanel";
 import type { Recommendation } from "./types";
 import "./styles/index.css";
 
@@ -63,6 +67,8 @@ function AppLayout({ onLogout }: { onLogout: () => void }) {
   const isDragging = useRef(false);
   const startX = useRef(0);
   const startWidth = useRef(0);
+  const [sidebarOpen, setSidebarOpen] = useState(false);
+  const [mobileDismissed, setMobileDismissed] = useState(() => sessionStorage.getItem("mobileDismissed") === "1");
 
   const chat = useChat();
   const sessions = useSessions();
@@ -103,10 +109,16 @@ function AppLayout({ onLogout }: { onLogout: () => void }) {
   // Wrap sendMessage to pass current session id and refresh session list after
   const handleSendMessage = useCallback(async (content: string) => {
     const sid = sessions.currentSessionId || "default";
+    // Auto-rename session if it still has the default title and this is the first message
+    const currentSession = sessions.sessions.find((s) => s.session_id === sid);
+    if (currentSession && currentSession.title === "New Session" && currentSession.message_count === 0) {
+      const autoTitle = content.trim().slice(0, 40) + (content.trim().length > 40 ? "…" : "");
+      await sessions.updateSessionTitle(sid, autoTitle);
+    }
     await chat.sendMessage(content, sid);
     sessions.loadSessions();
     setRefreshKey((k) => k + 1);
-  }, [chat.sendMessage, sessions.currentSessionId, sessions.loadSessions]);
+  }, [chat.sendMessage, sessions.currentSessionId, sessions.loadSessions, sessions.sessions, sessions.updateSessionTitle]);
 
   // Switch session: load messages from backend, clear console
   const handleSwitchSession = useCallback(async (sessionId: string) => {
@@ -225,6 +237,17 @@ function AppLayout({ onLogout }: { onLogout: () => void }) {
 
   return (
     <div className="app">
+      {/* Mobile notice overlay (shown on screens ≤ 600px unless dismissed) */}
+      {!mobileDismissed && (
+        <div className="mobile-notice">
+          <span className="mobile-notice-icon">🖥️</span>
+          <h2>Best viewed on desktop</h2>
+          <p>OctoFinance is a GitHub Copilot admin tool optimized for desktop browsers. Some features may not work correctly on small screens.</p>
+          <button className="mobile-notice-dismiss" onClick={() => { setMobileDismissed(true); sessionStorage.setItem("mobileDismissed", "1"); }}>
+            Continue anyway
+          </button>
+        </div>
+      )}
       <StatusBar
         consoleOpen={consoleOpen}
         onToggleConsole={toggleConsole}
@@ -233,9 +256,16 @@ function AppLayout({ onLogout }: { onLogout: () => void }) {
         currentView={currentView}
         onViewChange={setCurrentView}
         onLogout={onLogout}
+        sidebarOpen={sidebarOpen}
+        onToggleSidebar={() => setSidebarOpen((v) => !v)}
+        alertBadge={
+          <AlertBadge onClick={() => ui.patch({ sidebarCollapsed: { ...ui.sidebarCollapsed, alerts: false } })} />
+        }
       />
+      {/* Sidebar backdrop on tablet */}
+      {sidebarOpen && <div className="sidebar-backdrop" onClick={() => setSidebarOpen(false)} />}
       <div className="app-body">
-        <aside className="sidebar" style={{ width: sidebarWidth }}>
+        <aside className={`sidebar${sidebarOpen ? " sidebar-open" : ""}`} style={{ width: sidebarWidth }}>
           <SidebarPanel
             title={t("sidebar.overview")}
             collapsed={collapsed.overview}
@@ -276,6 +306,27 @@ function AppLayout({ onLogout }: { onLogout: () => void }) {
           >
             <ActionPanel key={refreshKey} onExecute={handleExecuteAction} />
           </SidebarPanel>
+          <SidebarPanel
+            title={t("alerts.title")}
+            collapsed={collapsed.alerts ?? true}
+            onToggle={() => togglePanel("alerts")}
+          >
+            <AlertPanel />
+          </SidebarPanel>
+          <SidebarPanel
+            title={t("budget.title")}
+            collapsed={collapsed.budget ?? true}
+            onToggle={() => togglePanel("budget")}
+          >
+            <BudgetPanel key={refreshKey} />
+          </SidebarPanel>
+          <SidebarPanel
+            title={t("reportHistory.title")}
+            collapsed={collapsed.reportHistory ?? true}
+            onToggle={() => togglePanel("reportHistory")}
+          >
+            <ReportHistoryPanel />
+          </SidebarPanel>
         </aside>
         <div className="resizer" onMouseDown={onMouseDown} />
         <main className="main-content">
@@ -304,6 +355,7 @@ function AppLayout({ onLogout }: { onLogout: () => void }) {
 }
 
 function AuthGate() {
+  const { refresh: refreshUser } = useCurrentUser();
   const [authStatus, setAuthStatus] = useState<{
     setup_required: boolean;
     authenticated: boolean;
@@ -312,9 +364,12 @@ function AuthGate() {
   const checkAuth = useCallback(() => {
     fetch("/api/auth/status")
       .then((r) => r.json())
-      .then(setAuthStatus)
+      .then((s) => {
+        setAuthStatus(s);
+        if (s.authenticated) refreshUser();
+      })
       .catch(() => setAuthStatus({ setup_required: false, authenticated: false }));
-  }, []);
+  }, [refreshUser]);
 
   useEffect(() => {
     checkAuth();
@@ -336,7 +391,9 @@ function App() {
     <ThemeProvider>
       <I18nProvider>
         <UIStateProvider>
-          <AuthGate />
+          <AuthProvider>
+            <AuthGate />
+          </AuthProvider>
         </UIStateProvider>
       </I18nProvider>
     </ThemeProvider>

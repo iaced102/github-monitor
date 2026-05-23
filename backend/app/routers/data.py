@@ -11,14 +11,45 @@ from collections import defaultdict
 from datetime import datetime, timezone
 from pathlib import Path
 
-from fastapi import APIRouter, Query, UploadFile, File
+from fastapi import APIRouter, Query, Request, UploadFile, File
 from fastapi.responses import StreamingResponse
 
 from ..services.api_manager import api_manager
 from ..services.data_collector import data_collector
 from ..services.report_generator import generate_report_zip
+from ..services.periodic_report_generator import generate_periodic_report_zip, generate_periodic_report
+from ..services import database as db_module
 
 router = APIRouter(tags=["data"])
+
+
+def _get_scope_usernames(request: Request, group_id: int | None = None) -> set[str] | None:
+    """Return a set of GitHub usernames the current user may see, or None for unrestricted.
+
+    - super_admin + no group_id param → None (no filter, see everything)
+    - super_admin + group_id param    → filter to that group's members
+    - manager                         → filter to union of all their assigned groups
+    """
+    user = getattr(request.state, "current_user", None)
+    if not user:
+        return None
+
+    db = db_module.db
+    if db is None:
+        return None
+
+    if user["role"] == "super_admin":
+        if group_id:
+            members = db.get_group_members(group_id)
+            return set(members) if members else None
+        return None  # super_admin, no group filter
+
+    # manager: always restricted to their assigned groups
+    gids = db.get_manager_group_ids(user["username"])
+    if not gids:
+        return set()  # manager with no groups sees nothing
+    usernames = db.get_all_group_usernames(gids)
+    return set(u.lower() for u in usernames)
 
 
 @router.get("/data/orgs")
@@ -187,12 +218,16 @@ async def get_billing(org: str):
 
 
 @router.get("/data/dashboard")
-async def get_dashboard(orgs: str = Query(default="")):
+async def get_dashboard(request: Request, orgs: str = Query(default=""), group_id: int = Query(default=0)):
     """Aggregated dashboard data for visualization.
 
     Query param ``orgs`` is a comma-separated list of org logins to include.
     Empty means all orgs with Copilot billing data.
+    ``group_id`` (super_admin only) optionally restricts the user-level views
+    to members of a specific group.
     """
+    scope_users = _get_scope_usernames(request, group_id or None)
+
     all_org_names = _get_all_scope_names()
     selected = [o.strip() for o in orgs.split(",") if o.strip()] if orgs.strip() else all_org_names
 
@@ -276,9 +311,13 @@ async def get_dashboard(orgs: str = Query(default="")):
         if seats_data:
             for s in seats_data.get("seats", []):
                 assignee = s.get("assignee", {})
+                login = assignee.get("login", "")
+                # Apply group scope filter
+                if scope_users is not None and login.lower() not in scope_users:
+                    continue
                 team = s.get("assigning_team")
                 seat_info["seats"].append({
-                    "user": assignee.get("login", ""),
+                    "user": login,
                     "avatar": assignee.get("avatar_url", ""),
                     "org": org_name,
                     "plan_type": s.get("plan_type", ""),
@@ -426,6 +465,9 @@ async def get_dashboard(orgs: str = Query(default="")):
             login = rec.get("user_login", "")
             if not login:
                 continue
+            # Apply group scope filter
+            if scope_users is not None and login.lower() not in scope_users:
+                continue
             u = user_agg[login]
             u["interactions"] += rec.get("user_initiated_interaction_count", 0)
             u["code_gen"] += rec.get("code_generation_activity_count", 0)
@@ -511,7 +553,7 @@ async def get_dashboard(orgs: str = Query(default="")):
 # API-sourced activity/premium helpers (fallback when no CSV uploaded)
 # ---------------------------------------------------------------------------
 
-def _build_api_usage_section() -> dict:
+def _build_api_usage_section(scope_users: set[str] | None = None) -> dict:
     """Build per-user activity report from API-synced usage_users data."""
     all_scope_names = _get_all_scope_names()
     user_agg: dict[str, dict] = defaultdict(lambda: {
@@ -529,6 +571,8 @@ def _build_api_usage_section() -> dict:
         for rec in uu.get("records", []):
             login = rec.get("user_login", "")
             if not login:
+                continue
+            if scope_users is not None and login.lower() not in scope_users:
                 continue
             day = rec.get("day", "")
             if day:
@@ -677,21 +721,25 @@ def _build_api_premium_section() -> dict:
 
 @router.get("/data/csv-dashboard")
 async def get_csv_dashboard(
+    request: Request,
     orgs: str = Query(default=""),
     cost_centers: str = Query(default=""),
     products: str = Query(default=""),
     skus: str = Query(default=""),
     date_from: str = Query(default=""),
     date_to: str = Query(default=""),
+    group_id: int = Query(default=0),
 ):
     """Aggregated dashboard data derived entirely from uploaded CSVs."""
+    scope_users = _get_scope_usernames(request, group_id or None)
+
     selected_orgs = [o.strip() for o in orgs.split(",") if o.strip()]
     selected_ccs = [c.strip() for c in cost_centers.split(",") if c.strip()]
     selected_products = [p.strip() for p in products.split(",") if p.strip()]
     selected_skus = [s.strip() for s in skus.split(",") if s.strip()]
 
-    premium = _build_premium_csv_section(selected_orgs, selected_ccs, date_from, date_to)
-    usage = _build_usage_report_section(selected_orgs, selected_ccs, selected_products, selected_skus, date_from, date_to)
+    premium = _build_premium_csv_section(selected_orgs, selected_ccs, date_from, date_to, scope_users=scope_users)
+    usage = _build_usage_report_section(selected_orgs, selected_ccs, selected_products, selected_skus, date_from, date_to, scope_users=scope_users)
 
     # Gather all filter options from raw data
     all_premium = _load_all_csv_records(CSV_TYPE_PREMIUM)
@@ -718,7 +766,7 @@ async def get_csv_dashboard(
     return {
         "premium_csv": premium,
         "usage_report": usage,
-        "api_usage": _build_api_usage_section(),
+        "api_usage": _build_api_usage_section(scope_users=scope_users),
         "api_premium": _build_api_premium_section(),
         "filters": {
             "orgs": sorted(all_orgs),
@@ -744,7 +792,8 @@ def _apply_common_filters(records: list[dict], selected_orgs: list[str], selecte
 
 
 def _build_premium_csv_section(selected_orgs: list[str], selected_ccs: list[str],
-                                date_from: str, date_to: str) -> dict:
+                                date_from: str, date_to: str,
+                                scope_users: set[str] | None = None) -> dict:
     """Build aggregated premium request CSV section for CSV dashboard."""
     all_records = _load_all_csv_records(CSV_TYPE_PREMIUM)
     if not all_records:
@@ -752,6 +801,8 @@ def _build_premium_csv_section(selected_orgs: list[str], selected_ccs: list[str]
                 "model_breakdown": [], "org_breakdown": [], "cost_center_breakdown": [], "users": []}
 
     filtered = _apply_common_filters(all_records, selected_orgs, selected_ccs, date_from, date_to)
+    if scope_users is not None:
+        filtered = [r for r in filtered if (r.get("username", "") or "").lower() in scope_users]
     if not filtered:
         return {"has_data": False, "date_range": {}, "kpi": {}, "daily_trend": [],
                 "model_breakdown": [], "org_breakdown": [], "cost_center_breakdown": [], "users": []}
@@ -859,7 +910,8 @@ def _build_premium_csv_section(selected_orgs: list[str], selected_ccs: list[str]
 
 def _build_usage_report_section(selected_orgs: list[str], selected_ccs: list[str],
                                  selected_products: list[str], selected_skus: list[str],
-                                 date_from: str, date_to: str) -> dict:
+                                 date_from: str, date_to: str,
+                                 scope_users: set[str] | None = None) -> dict:
     """Build aggregated usage report CSV section for CSV dashboard."""
     all_records = _load_all_csv_records(CSV_TYPE_USAGE)
     if not all_records:
@@ -872,6 +924,8 @@ def _build_usage_report_section(selected_orgs: list[str], selected_ccs: list[str
         filtered = [r for r in filtered if r.get("product", "") in selected_products]
     if selected_skus:
         filtered = [r for r in filtered if r.get("sku", "") in selected_skus]
+    if scope_users is not None:
+        filtered = [r for r in filtered if (r.get("username", "") or "").lower() in scope_users]
 
     if not filtered:
         return {"has_data": False, "date_range": {}, "kpi": {}, "daily_trend": [],
@@ -1331,16 +1385,20 @@ async def get_cost_center_report(enterprise: str = Query(default="")):
 
 @router.get("/data/cost-center-dashboard")
 async def get_cost_center_dashboard(
+    request: Request,
     enterprise: str = Query(default=""),
     cost_centers: str = Query(default=""),
     state: str = Query(default="active"),
     search: str = Query(default=""),
+    group_id: int = Query(default=0),
 ):
     """Return cost center dashboard data from synced JSON files.
 
     Supports filtering by enterprise slug, cost center names (comma-separated),
     state ('active'|'archived'|'all'), and user login search.
     """
+    scope_users = _get_scope_usernames(request, group_id or None)
+
     # Collect available enterprises from saved data
     enterprise_list = data_collector.load_latest("enterprise", "all") or []
     if not isinstance(enterprise_list, list):
@@ -1397,6 +1455,15 @@ async def get_cost_center_dashboard(
                 filtered.append({**cc, "members": matched_members, "member_count": len(matched_members)})
         all_ccs = filtered
 
+    # Apply group scope filter to members in each cost center
+    if scope_users is not None:
+        scoped = []
+        for cc in all_ccs:
+            kept = [m for m in cc.get("members", []) if m.get("login", "").lower() in scope_users]
+            if kept:
+                scoped.append({**cc, "members": kept, "member_count": len(kept)})
+        all_ccs = scoped
+
     # Build user → cost_centers reverse map
     user_cc_map: dict[str, dict] = {}
     for cc in all_ccs:
@@ -1419,7 +1486,7 @@ async def get_cost_center_dashboard(
     user_map = sorted(user_cc_map.values(), key=lambda u: u["login"].lower())
 
     # Build seat_fallback: seat data + activity metrics per user (shown when no cost centers)
-    seat_fallback = _build_seat_fallback(selected_slug)
+    seat_fallback = _build_seat_fallback(selected_slug, scope_users=scope_users)
 
     return {
         "enterprises": enterprise_list,
@@ -1434,7 +1501,7 @@ async def get_cost_center_dashboard(
     }
 
 
-def _build_seat_fallback(scope: str) -> dict:
+def _build_seat_fallback(scope: str, scope_users: set[str] | None = None) -> dict:
     """Build per-user seat + activity data for use when enterprise has no cost centers."""
     seats_data = data_collector.load_latest("seats", scope)
     if not seats_data:
@@ -1464,6 +1531,8 @@ def _build_seat_fallback(scope: str) -> dict:
     for seat in seats_data.get("seats", []):
         assignee = seat.get("assignee", {})
         login = assignee.get("login", "")
+        if scope_users is not None and login.lower() not in scope_users:
+            continue
         team = seat.get("assigning_team")
         act = activity_map.get(login, {})
         users.append({
@@ -1490,4 +1559,310 @@ def _build_seat_fallback(scope: str) -> dict:
         "has_data": True,
         "total_seats": len(users),
         "users": users,
+    }
+
+
+# ── Periodic Report ──────────────────────────────────────────────────────────
+
+@router.get("/data/periodic-report")
+async def get_periodic_report(
+    period_type: str = Query(default="monthly", description="'monthly' or 'quarterly'"),
+    year: int = Query(default=2025, description="Calendar year, e.g. 2025"),
+    period: int = Query(default=1, description="Month 1-12 (monthly) or quarter 1-4 (quarterly)"),
+    orgs: str = Query(default="", description="Comma-separated org/enterprise slugs; empty = all"),
+    format: str = Query(default="html", description="Output format: 'html', 'csv', or 'xlsx'"),
+):
+    """Generate and return a periodic (monthly or quarterly) report.
+
+    Returns a single file in the requested format:
+    - html : self-contained dark-theme HTML with SVG charts
+    - csv  : multi-section CSV with all data tables (UTF-8 BOM for Excel)
+    - xlsx : Excel workbook with multiple sheets
+    """
+    import calendar
+
+    if period_type not in ("monthly", "quarterly"):
+        return {"error": "period_type must be 'monthly' or 'quarterly'"}
+    if period_type == "monthly" and not (1 <= period <= 12):
+        return {"error": "For monthly reports, period must be 1-12"}
+    if period_type == "quarterly" and not (1 <= period <= 4):
+        return {"error": "For quarterly reports, period must be 1-4"}
+    if not (2020 <= year <= 2099):
+        return {"error": "year must be between 2020 and 2099"}
+    if format not in ("html", "csv", "xlsx"):
+        return {"error": "format must be 'html', 'csv', or 'xlsx'"}
+
+    org_filter = [o.strip() for o in orgs.split(",") if o.strip()] if orgs else []
+
+    try:
+        file_bytes, filename, media_type = generate_periodic_report(
+            data_collector=data_collector,
+            period_type=period_type,
+            year=year,
+            period=period,
+            fmt=format,
+            org_filter=org_filter,
+            all_scope_names=_get_all_scope_names(),
+        )
+    except Exception as exc:
+        return {"error": f"Report generation failed: {exc}"}
+
+    # Save to report history
+    _save_report_history(file_bytes, filename, period_type, year, period, format, org_filter)
+
+    return StreamingResponse(
+        io.BytesIO(file_bytes),
+        media_type=media_type,
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
+
+
+# ── Report History helpers ────────────────────────────────────────────────────
+
+_REPORTS_DIR = Path(__file__).parent.parent.parent.parent / "data" / "reports"
+_REPORTS_INDEX = _REPORTS_DIR / "index.json"
+
+
+def _load_report_index() -> list[dict]:
+    if _REPORTS_INDEX.exists():
+        try:
+            with open(_REPORTS_INDEX, encoding="utf-8") as f:
+                return json.load(f)
+        except Exception:
+            pass
+    return []
+
+
+def _save_report_history(
+    file_bytes: bytes,
+    filename: str,
+    period_type: str,
+    year: int,
+    period: int,
+    fmt: str,
+    org_filter: list[str],
+) -> None:
+    try:
+        _REPORTS_DIR.mkdir(parents=True, exist_ok=True)
+        entry_id = f"{datetime.now(timezone.utc).strftime('%Y%m%d_%H%M%S')}_{fmt}"
+        report_path = _REPORTS_DIR / f"{entry_id}_{filename}"
+        report_path.write_bytes(file_bytes)
+        index = _load_report_index()
+        index.insert(0, {
+            "id": entry_id,
+            "period_type": period_type,
+            "year": year,
+            "period": period,
+            "format": fmt,
+            "orgs": org_filter,
+            "filename": filename,
+            "stored_filename": report_path.name,
+            "size": len(file_bytes),
+            "created_at": datetime.now(timezone.utc).isoformat(),
+        })
+        # Keep only last 50 reports
+        index = index[:50]
+        with open(_REPORTS_INDEX, "w", encoding="utf-8") as f:
+            json.dump(index, f, indent=2, ensure_ascii=False)
+    except Exception:
+        pass  # Non-fatal: don't break the download
+
+
+@router.get("/data/report-history")
+async def get_report_history():
+    """List all previously generated periodic reports."""
+    index = _load_report_index()
+    return {"reports": index, "count": len(index)}
+
+
+@router.get("/data/report-history/{report_id}")
+async def download_report_history(report_id: str):
+    """Re-download a previously generated periodic report by ID."""
+    index = _load_report_index()
+    entry = next((r for r in index if r["id"] == report_id), None)
+    if not entry:
+        return {"error": "Report not found"}
+    report_path = _REPORTS_DIR / entry["stored_filename"]
+    if not report_path.exists():
+        return {"error": "Report file no longer available"}
+
+    fmt = entry.get("format", "html")
+    media_map = {
+        "html": "text/html; charset=utf-8",
+        "csv": "text/csv; charset=utf-8",
+        "xlsx": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    }
+    media_type = media_map.get(fmt, "application/octet-stream")
+    file_bytes = report_path.read_bytes()
+    return StreamingResponse(
+        io.BytesIO(file_bytes),
+        media_type=media_type,
+        headers={"Content-Disposition": f'attachment; filename="{entry["filename"]}"'},
+    )
+
+
+@router.delete("/data/report-history/{report_id}")
+async def delete_report_history(report_id: str):
+    """Delete a report from history."""
+    index = _load_report_index()
+    entry = next((r for r in index if r["id"] == report_id), None)
+    if not entry:
+        return {"error": "Report not found"}
+    # Remove file
+    report_path = _REPORTS_DIR / entry["stored_filename"]
+    if report_path.exists():
+        report_path.unlink()
+    # Remove from index
+    new_index = [r for r in index if r["id"] != report_id]
+    with open(_REPORTS_INDEX, "w", encoding="utf-8") as f:
+        json.dump(new_index, f, indent=2, ensure_ascii=False)
+    return {"ok": True}
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# USAGE MONITOR  —  token / model / user analytics
+# ─────────────────────────────────────────────────────────────────────────────
+@router.get("/data/usage-monitor")
+async def get_usage_monitor(
+    request: Request,
+    orgs: str = Query(default="", description="Comma-separated org slugs; empty = all"),
+    group_id: int = Query(default=0),
+):
+    """Aggregate model/user usage analytics from cached usage data."""
+    from collections import defaultdict
+
+    scope_users = _get_scope_usernames(request, group_id or None)
+
+    org_filter = {o.strip() for o in orgs.split(",") if o.strip()} if orgs else set()
+    all_scopes = _get_all_scope_names()
+    scopes = [s for s in all_scopes if not org_filter or s in org_filter] or all_scopes
+
+    # ── aggregate usage (org-level) ───────────────────────────────────────────
+    model_totals: dict[str, dict] = defaultdict(lambda: {
+        "interactions": 0, "code_gen": 0, "code_accept": 0,
+        "loc_suggested": 0, "loc_added": 0,
+    })
+    model_feature: dict[tuple, dict] = defaultdict(lambda: {
+        "interactions": 0, "code_gen": 0, "code_accept": 0,
+    })
+    model_lang: dict[tuple, dict] = defaultdict(lambda: {
+        "code_gen": 0, "code_accept": 0, "loc_suggested": 0,
+    })
+    daily_model: dict[str, dict[str, dict]] = defaultdict(
+        lambda: defaultdict(lambda: {"interactions": 0, "code_gen": 0, "code_accept": 0})
+    )
+
+    for scope in scopes:
+        usage = data_collector.load_latest("usage", scope)
+        if not usage:
+            continue
+        records = usage if isinstance(usage, list) else usage.get("records", [usage])
+        for rec in records:
+            for day_rec in rec.get("day_totals", []):
+                day = day_rec.get("day", "")
+                for mf in day_rec.get("totals_by_model_feature", []):
+                    m = mf.get("model", "unknown")
+                    model_totals[m]["interactions"] += mf.get("user_initiated_interaction_count", 0)
+                    model_totals[m]["code_gen"] += mf.get("code_generation_activity_count", 0)
+                    model_totals[m]["code_accept"] += mf.get("code_acceptance_activity_count", 0)
+                    model_totals[m]["loc_suggested"] += mf.get("loc_suggested_to_add_sum", 0)
+                    model_totals[m]["loc_added"] += mf.get("loc_added_sum", 0)
+                    feat = mf.get("feature", "unknown")
+                    model_feature[(m, feat)]["interactions"] += mf.get("user_initiated_interaction_count", 0)
+                    model_feature[(m, feat)]["code_gen"] += mf.get("code_generation_activity_count", 0)
+                    model_feature[(m, feat)]["code_accept"] += mf.get("code_acceptance_activity_count", 0)
+                    daily_model[day][m]["interactions"] += mf.get("user_initiated_interaction_count", 0)
+                    daily_model[day][m]["code_gen"] += mf.get("code_generation_activity_count", 0)
+                    daily_model[day][m]["code_accept"] += mf.get("code_acceptance_activity_count", 0)
+                for lm in day_rec.get("totals_by_language_model", []):
+                    lang = lm.get("language", "unknown")
+                    m = lm.get("model", "unknown")
+                    model_lang[(m, lang)]["code_gen"] += lm.get("code_generation_activity_count", 0)
+                    model_lang[(m, lang)]["code_accept"] += lm.get("code_acceptance_activity_count", 0)
+                    model_lang[(m, lang)]["loc_suggested"] += lm.get("loc_suggested_to_add_sum", 0)
+
+    # ── aggregate usage_users (per-user) ──────────────────────────────────────
+    user_model: dict[str, dict[str, dict]] = defaultdict(
+        lambda: defaultdict(lambda: {"interactions": 0, "code_gen": 0, "code_accept": 0})
+    )
+    user_totals: dict[str, int] = defaultdict(int)
+
+    for scope in scopes:
+        uu = data_collector.load_latest("usage_users", scope)
+        if not uu:
+            continue
+        records = uu if isinstance(uu, list) else uu.get("records", [uu])
+        for rec in records:
+            login = rec.get("user_login", "unknown")
+            if scope_users is not None and login.lower() not in scope_users:
+                continue
+            for mf in rec.get("totals_by_model_feature", []):
+                m = mf.get("model", "unknown")
+                interactions = mf.get("user_initiated_interaction_count", 0)
+                code_gen = mf.get("code_generation_activity_count", 0)
+                code_accept = mf.get("code_acceptance_activity_count", 0)
+                user_model[login][m]["interactions"] += interactions
+                user_model[login][m]["code_gen"] += code_gen
+                user_model[login][m]["code_accept"] += code_accept
+                user_totals[login] += interactions + code_gen
+
+    # ── serialise ─────────────────────────────────────────────────────────────
+    model_totals_list = sorted(
+        [{"model": m, **v} for m, v in model_totals.items()],
+        key=lambda x: -(x["interactions"] + x["code_gen"]),
+    )
+
+    model_feature_list = sorted(
+        [{"model": m, "feature": f, **v} for (m, f), v in model_feature.items()],
+        key=lambda x: -(x["interactions"] + x["code_gen"]),
+    )
+
+    model_lang_list = sorted(
+        [{"model": m, "language": l, **v} for (m, l), v in model_lang.items()],
+        key=lambda x: -x["code_gen"],
+    )
+
+    # daily trend: [{day, models: [{model, interactions, code_gen}]}]
+    daily_trend = []
+    for day in sorted(daily_model.keys()):
+        entry: dict = {"day": day}
+        for m, vals in daily_model[day].items():
+            safe_key = m.replace("-", "_").replace(".", "_")
+            entry[safe_key] = vals["interactions"] + vals["code_gen"]
+            entry[f"{safe_key}_interact"] = vals["interactions"]
+            entry[f"{safe_key}_codegen"] = vals["code_gen"]
+        daily_trend.append(entry)
+
+    # get all unique model names (used as chart series keys)
+    all_models = sorted(model_totals.keys())
+
+    # per-user breakdown
+    user_model_list = []
+    for login in sorted(user_totals.keys(), key=lambda u: -user_totals[u]):
+        row: dict = {"user": login, "total": user_totals[login]}
+        for m, vals in user_model[login].items():
+            row[m] = vals["interactions"] + vals["code_gen"]
+        user_model_list.append(row)
+
+    # KPIs
+    total_interactions = sum(v["interactions"] for v in model_totals.values())
+    total_code_gen = sum(v["code_gen"] for v in model_totals.values())
+    top_model = model_totals_list[0]["model"] if model_totals_list else "—"
+    unique_models = len(model_totals)
+    active_users = len(user_model)
+
+    return {
+        "kpi": {
+            "total_interactions": total_interactions,
+            "total_code_gen": total_code_gen,
+            "unique_models": unique_models,
+            "top_model": top_model,
+            "active_users": active_users,
+        },
+        "model_totals": model_totals_list,
+        "model_feature": model_feature_list,
+        "model_language": model_lang_list,
+        "daily_trend": daily_trend,
+        "all_models": all_models,
+        "user_model": user_model_list,
     }

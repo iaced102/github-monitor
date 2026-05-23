@@ -1,9 +1,13 @@
 import { useCallback } from "react";
 import { useI18n } from "../contexts/I18nContext";
 import { useUIState } from "../contexts/UIStateContext";
+import { useCurrentUser } from "../contexts/AuthContext";
 import { Dashboard } from "./Dashboard";
 import { CsvDashboard } from "./CsvDashboard";
 import { CostCenterDashboard } from "./CostCenterDashboard";
+import { UsageMonitorDashboard } from "./UsageMonitorDashboard";
+import { UserGroupsPage } from "./UserGroupsPage";
+import { GroupFilter } from "./GroupFilter";
 
 interface Props {
   refreshKey: number;
@@ -12,11 +16,16 @@ interface Props {
 export function UnifiedDashboard({ refreshKey }: Props) {
   const { t } = useI18n();
   const ui = useUIState();
+  const { currentUser } = useCurrentUser();
   const tab = ui.dashboardTab ?? "metrics";
   const setTab = useCallback(
-    (v: "metrics" | "premium" | "usage" | "costcenter") => ui.patch({ dashboardTab: v }),
+    (v: "metrics" | "premium" | "usage" | "costcenter" | "monitor" | "groups") =>
+      ui.patch({ dashboardTab: v }),
     [ui.patch],
   );
+
+  const selectedOrgs = ui.dashboardSelectedOrgs ?? [];
+  const isSuperAdmin = currentUser?.role === "super_admin";
 
   return (
     <div className="unified-dashboard">
@@ -46,13 +55,33 @@ export function UnifiedDashboard({ refreshKey }: Props) {
           >
             {t("ccDash.tab")}
           </button>
+          <button
+            className={`btn btn-small btn-toggle ${tab === "monitor" ? "btn-toggle-active" : ""}`}
+            onClick={() => setTab("monitor")}
+          >
+            {t("monitor.tab")}
+          </button>
+          {isSuperAdmin && (
+            <button
+              className={`btn btn-small btn-toggle ${tab === "groups" ? "btn-toggle-active" : ""}`}
+              onClick={() => setTab("groups")}
+            >
+              {t("groups.tab")}
+            </button>
+          )}
         </div>
+        {/* Group scope filter — shown on all data tabs */}
+        {tab !== "groups" && <GroupFilter />}
       </div>
 
       {tab === "metrics" ? (
         <Dashboard refreshKey={refreshKey} />
       ) : tab === "costcenter" ? (
         <CostCenterDashboard refreshKey={refreshKey} />
+      ) : tab === "monitor" ? (
+        <UsageMonitorDashboard refreshKey={refreshKey} selectedOrgs={selectedOrgs} />
+      ) : tab === "groups" ? (
+        <UserGroupsPage />
       ) : (
         <CsvDashboard refreshKey={refreshKey} tab={tab as "premium" | "usage"} />
       )}

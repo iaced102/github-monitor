@@ -13,7 +13,11 @@ from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 
 from .routers import actions, auth, chat, data, pats, sessions, sync
-from .routers.auth import AUTH_PUBLIC_PATHS, is_authenticated
+from .routers.alerts import router as alerts_router
+from .routers.budgets import router as budgets_router
+from .routers.groups import router as groups_router
+from .routers.managers import router as managers_router
+from .routers.auth import AUTH_PUBLIC_PATHS, is_authenticated, get_current_user
 from .services.api_manager import api_manager
 from .services.copilot_engine import copilot_engine
 from .services.data_collector import data_collector
@@ -126,6 +130,10 @@ app.include_router(sync.router, prefix="/api")
 app.include_router(data.router, prefix="/api")
 app.include_router(actions.router, prefix="/api")
 app.include_router(pats.router, prefix="/api")
+app.include_router(alerts_router, prefix="/api")
+app.include_router(budgets_router, prefix="/api")
+app.include_router(groups_router, prefix="/api")
+app.include_router(managers_router, prefix="/api")
 
 # Serve frontend static files
 _dist = Path(__file__).parent.parent.parent / "frontend" / "dist"
@@ -145,6 +153,8 @@ async def auth_middleware(request: Request, call_next):
         token = request.cookies.get("octofinance_session")
         if not is_authenticated(token):
             return JSONResponse(status_code=401, content={"error": "Authentication required"})
+        # Inject current user info into request state for downstream use
+        request.state.current_user = get_current_user(token)
     return await call_next(request)
 
 

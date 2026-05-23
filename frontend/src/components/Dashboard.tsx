@@ -6,6 +6,8 @@ import {
 import { useI18n } from "../contexts/I18nContext";
 import { useUIState } from "../contexts/UIStateContext";
 import { useDashboard } from "../hooks/useData";
+import { PeriodicReportButton } from "./PeriodicReportButton";
+import { InfoIcon, ChartTitle } from "./InfoIcon";
 
 const COLORS = ["#58a6ff", "#3fb950", "#d29922", "#f85149", "#bc8cff", "#f778ba", "#79c0ff", "#56d364"];
 const TOOLTIP_STYLE = { background: "var(--bg-secondary)", border: "1px solid var(--border)", borderRadius: 8, fontSize: 12 };
@@ -15,7 +17,7 @@ interface Props {
 }
 
 /* ---------- Collapsible Section ---------- */
-function Section({ sectionKey, title, defaultOpen = true, children }: { sectionKey: string; title: string; defaultOpen?: boolean; children: React.ReactNode }) {
+function Section({ sectionKey, title, infoKey, defaultOpen = true, children }: { sectionKey: string; title: string; infoKey?: string; defaultOpen?: boolean; children: React.ReactNode }) {
   const { dashboardSections, patch } = useUIState();
   const open = dashboardSections[sectionKey] ?? defaultOpen;
   const toggle = useCallback(() => {
@@ -26,6 +28,7 @@ function Section({ sectionKey, title, defaultOpen = true, children }: { sectionK
       <div className="dash-section-header" onClick={toggle}>
         <span className="dash-section-chevron">{open ? "\u25BC" : "\u25B6"}</span>
         <h3 className="dash-section-title">{title}</h3>
+        {infoKey && <InfoIcon id={infoKey} />}
       </div>
       {open && <div className="dash-section-body">{children}</div>}
     </div>
@@ -41,7 +44,7 @@ export function Dashboard({ refreshKey }: Props) {
     const next = typeof v === "function" ? v(ui.dashboardSelectedOrgs) : v;
     ui.patch({ dashboardSelectedOrgs: next });
   }, [ui.patch, ui.dashboardSelectedOrgs]);
-  const { data, loading } = useDashboard(selectedOrgs ?? []);
+  const { data, loading } = useDashboard(selectedOrgs ?? [], ui.selectedGroupId);
 
   const dateFrom = ui.dashboardDateFrom;
   const setDateFrom = useCallback((v: string) => ui.patch({ dashboardDateFrom: v }), [ui.patch]);
@@ -143,6 +146,9 @@ export function Dashboard({ refreshKey }: Props) {
           <span className="dashboard-date-sep">—</span>
           <input type="date" className="dashboard-date-input" value={dateTo || data?.date_range?.end || ""} onChange={(e) => setDateTo(e.target.value)} />
         </div>
+        <div className="dashboard-filter-group" style={{ marginLeft: "auto" }}>
+          <PeriodicReportButton selectedOrgs={selectedOrgs ?? allOrgs} />
+        </div>
       </div>
 
       {loading && !data && <div className="dashboard-loading">{t("loading")}</div>}
@@ -159,20 +165,24 @@ export function Dashboard({ refreshKey }: Props) {
           {/* ===== KPI Cards ===== */}
           <div className="dashboard-kpi">
             <div className="stat-card">
+              <InfoIcon id="kpi_seats" />
               <div className="stat-value">{data.kpi.total_seats}</div>
               <div className="stat-label">{t("sidebar.totalSeats")}</div>
             </div>
             <div className="stat-card">
+              <InfoIcon id="kpi_utilization" />
               <div className={`stat-value ${data.kpi.utilization_pct >= 80 ? "success" : data.kpi.utilization_pct >= 50 ? "warning" : "danger"}`}>
                 {data.kpi.utilization_pct}%
               </div>
               <div className="stat-label">{t("sidebar.utilization")}</div>
             </div>
             <div className="stat-card">
+              <InfoIcon id="kpi_cost" />
               <div className="stat-value cost">${data.kpi.monthly_cost.toLocaleString()}</div>
               <div className="stat-label">{t("sidebar.monthlyCost")}</div>
             </div>
             <div className="stat-card">
+              <InfoIcon id="kpi_waste" />
               <div className={`stat-value ${data.kpi.monthly_waste > 0 ? "danger" : ""}`}>
                 ${data.kpi.monthly_waste.toLocaleString()}
               </div>
@@ -181,10 +191,12 @@ export function Dashboard({ refreshKey }: Props) {
             {data.chat_stats && (data.chat_stats.ide_chats > 0 || data.chat_stats.dotcom_chats > 0) && (
               <>
                 <div className="stat-card">
+                  <InfoIcon id="kpi_chats" />
                   <div className="stat-value">{(data.chat_stats.ide_chats + data.chat_stats.dotcom_chats).toLocaleString()}</div>
                   <div className="stat-label">{t("dashboard.totalChats")}</div>
                 </div>
                 <div className="stat-card">
+                  <InfoIcon id="kpi_pr_summaries" />
                   <div className="stat-value">{data.chat_stats.pr_summaries.toLocaleString()}</div>
                   <div className="stat-label">{t("dashboard.prSummaries")}</div>
                 </div>
@@ -193,24 +205,24 @@ export function Dashboard({ refreshKey }: Props) {
           </div>
 
           {/* ===== Section: Active User Trends ===== */}
-          <Section sectionKey="activeUserTrends" title={t("dashboard.activeUserTrends")}>
+          <Section sectionKey="activeUserTrends" title={t("dashboard.activeUserTrends")} infoKey="section_activeUserTrends">
             <div className="dashboard-charts">
               <div className="chart-card chart-card-wide">
-                <h4>{t("dashboard.dailyTrend")}</h4>
+                <ChartTitle text={t("dashboard.dailyTrend")} infoKey="chart_dailyTrend" />
                 {filteredTrend.length > 0 ? (
                   <ResponsiveContainer width="100%" height={260}>
-                    <AreaChart data={filteredTrend}>
+                    <LineChart data={filteredTrend}>
                       <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" />
                       <XAxis dataKey="day" tick={{ fontSize: 11, fill: "var(--text-muted)" }} tickFormatter={(v) => v.slice(5)} />
                       <YAxis tick={{ fontSize: 11, fill: "var(--text-muted)" }} />
                       <Tooltip contentStyle={TOOLTIP_STYLE} />
-                      <Area type="monotone" dataKey="mau" name="MAU" stroke="#bc8cff" fill="#bc8cff" fillOpacity={0.1} />
-                      <Area type="monotone" dataKey="wau" name="WAU" stroke="#58a6ff" fill="#58a6ff" fillOpacity={0.15} />
-                      <Area type="monotone" dataKey="dau" name="DAU" stroke="#3fb950" fill="#3fb950" fillOpacity={0.2} />
-                      <Area type="monotone" dataKey="chat_users" name="Chat" stroke="#d29922" fill="#d29922" fillOpacity={0.1} />
-                      <Area type="monotone" dataKey="agent_users" name="Agent" stroke="#f85149" fill="#f85149" fillOpacity={0.1} />
+                      <Line type="monotone" dataKey="mau" name="MAU" stroke="#bc8cff" strokeWidth={2} dot={false} />
+                      <Line type="monotone" dataKey="wau" name="WAU" stroke="#58a6ff" strokeWidth={2} dot={false} />
+                      <Line type="monotone" dataKey="dau" name="DAU" stroke="#3fb950" strokeWidth={2} dot={false} />
+                      <Line type="monotone" dataKey="chat_users" name="Chat" stroke="#d29922" strokeWidth={2} dot={false} />
+                      <Line type="monotone" dataKey="agent_users" name="Agent" stroke="#f85149" strokeWidth={2} dot={false} />
                       <Legend wrapperStyle={{ fontSize: 12 }} />
-                    </AreaChart>
+                    </LineChart>
                   </ResponsiveContainer>
                 ) : (
                   <div className="chart-empty">{t("dashboard.noData")}</div>
@@ -220,10 +232,10 @@ export function Dashboard({ refreshKey }: Props) {
           </Section>
 
           {/* ===== Section: Code Productivity ===== */}
-          <Section sectionKey="codeProductivity" title={t("dashboard.codeProductivity")}>
+          <Section sectionKey="codeProductivity" title={t("dashboard.codeProductivity")} infoKey="section_codeProductivity">
             <div className="dashboard-charts">
               <div className="chart-card">
-                <h4>{t("dashboard.locTrend")}</h4>
+                <ChartTitle text={t("dashboard.locTrend")} infoKey="chart_locTrend" />
                 {filteredTrend.length > 0 ? (
                   <ResponsiveContainer width="100%" height={240}>
                     <AreaChart data={filteredTrend}>
@@ -241,7 +253,7 @@ export function Dashboard({ refreshKey }: Props) {
                 )}
               </div>
               <div className="chart-card">
-                <h4>{t("dashboard.acceptRate")}</h4>
+                <ChartTitle text={t("dashboard.acceptRate")} infoKey="chart_acceptRate" />
                 {acceptRateTrend.length > 0 ? (
                   <ResponsiveContainer width="100%" height={240}>
                     <LineChart data={acceptRateTrend}>
@@ -262,7 +274,7 @@ export function Dashboard({ refreshKey }: Props) {
           </Section>
 
           {/* ===== Section: Feature Usage ===== */}
-          <Section sectionKey="featureUsage" title={t("dashboard.featureUsage")}>
+          <Section sectionKey="featureUsage" title={t("dashboard.featureUsage")} infoKey="section_featureUsage">
             <div className="dashboard-charts">
               <div className="chart-card chart-card-wide">
                 {data.feature_usage.length > 0 ? (
@@ -303,11 +315,11 @@ export function Dashboard({ refreshKey }: Props) {
 
           {/* ===== Section: Language Distribution ===== */}
           {(data.language_usage.length > 0 || data.code_completions.length > 0) && (
-            <Section sectionKey="langDist" title={t("dashboard.langDist")}>
+            <Section sectionKey="langDist" title={t("dashboard.langDist")} infoKey="section_langDist">
               <div className="dashboard-charts">
                 {data.language_usage.length > 0 && (
                   <div className="chart-card">
-                    <h4>{t("dashboard.langCodeGen")}</h4>
+                    <ChartTitle text={t("dashboard.langCodeGen")} infoKey="chart_langCodeGen" />
                     <ResponsiveContainer width="100%" height={Math.max(200, data.language_usage.length * 28)}>
                       <BarChart data={data.language_usage.slice(0, 15)} layout="vertical">
                         <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" />
@@ -322,7 +334,7 @@ export function Dashboard({ refreshKey }: Props) {
                 )}
                 {data.code_completions.length > 0 && (
                   <div className="chart-card">
-                    <h4>{t("dashboard.codeCompletions")}</h4>
+                    <ChartTitle text={t("dashboard.codeCompletions")} infoKey="chart_codeCompletions" />
                     <div className="dashboard-table-wrap">
                       <table className="dashboard-table">
                         <thead>
@@ -356,10 +368,10 @@ export function Dashboard({ refreshKey }: Props) {
           )}
 
           {/* ===== Section: Model & Premium Requests ===== */}
-          <Section sectionKey="modelPremium" title={t("dashboard.modelPremium")}>
+          <Section sectionKey="modelPremium" title={t("dashboard.modelPremium")} infoKey="section_modelPremium">
             <div className="dashboard-charts">
               <div className="chart-card">
-                <h4>{t("dashboard.modelUsage")}</h4>
+                <ChartTitle text={t("dashboard.modelUsage")} infoKey="chart_modelUsage" />
                 {data.model_usage.length > 0 ? (
                   <ResponsiveContainer width="100%" height={240}>
                     <PieChart>
@@ -383,7 +395,7 @@ export function Dashboard({ refreshKey }: Props) {
                 )}
               </div>
               <div className="chart-card">
-                <h4>{t("dashboard.premiumDetail")}</h4>
+                <ChartTitle text={t("dashboard.premiumDetail")} infoKey="chart_premiumDetail" />
                 {data.premium_detail.length > 0 ? (
                   <div className="dashboard-table-wrap">
                     <table className="dashboard-table">
@@ -417,10 +429,11 @@ export function Dashboard({ refreshKey }: Props) {
           </Section>
 
           {/* ===== Section: IDE Distribution ===== */}
-          <Section sectionKey="ideUsage" title={t("dashboard.ideUsage")}>
+          {/* ===== Section: IDE Usage ===== */}
+          <Section sectionKey="ideUsage" title={t("dashboard.ideUsage")} infoKey="section_ideUsage">
             <div className="dashboard-charts">
               <div className="chart-card">
-                <h4>{t("dashboard.ideChart")}</h4>
+                <ChartTitle text={t("dashboard.ideChart")} infoKey="chart_ideChart" />
                 {data.ide_usage.length > 0 ? (
                   <ResponsiveContainer width="100%" height={240}>
                     <BarChart data={data.ide_usage}>
@@ -437,7 +450,7 @@ export function Dashboard({ refreshKey }: Props) {
                 )}
               </div>
               <div className="chart-card">
-                <h4>{t("dashboard.ideDetail")}</h4>
+                <ChartTitle text={t("dashboard.ideDetail")} infoKey="chart_ideDetail" />
                 {data.ide_usage.length > 0 ? (
                   <div className="dashboard-table-wrap">
                     <table className="dashboard-table">
@@ -474,7 +487,7 @@ export function Dashboard({ refreshKey }: Props) {
 
           {/* ===== Section: Seat Management ===== */}
           {data.seat_info && data.seat_info.seats.length > 0 && (
-            <Section sectionKey="seatMgmt" title={t("dashboard.seatMgmt")} defaultOpen={false}>
+            <Section sectionKey="seatMgmt" title={t("dashboard.seatMgmt")} infoKey="section_seatMgmt" defaultOpen={false}>
               <div className="dashboard-charts">
                 <div className="chart-card chart-card-wide">
                   <div className="dash-seat-summary">
@@ -531,7 +544,7 @@ export function Dashboard({ refreshKey }: Props) {
           )}
 
           {/* ===== Section: Top Active Users ===== */}
-          <Section sectionKey="topUsers" title={t("dashboard.topUsers")}>
+          <Section sectionKey="topUsers" title={t("dashboard.topUsers")} infoKey="section_topUsers">
             <div className="dashboard-charts">
               <div className="chart-card chart-card-wide">
                 {data.top_users.length > 0 ? (

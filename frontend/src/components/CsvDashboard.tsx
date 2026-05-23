@@ -7,6 +7,7 @@ import { useI18n } from "../contexts/I18nContext";
 import { useUIState } from "../contexts/UIStateContext";
 import { useCsvDashboard } from "../hooks/useData";
 import type { PremiumCsvSection, UsageReportSection, ApiUsageSection, ApiPremiumSection } from "../types";
+import { InfoIcon, ChartTitle } from "./InfoIcon";
 
 const COLORS = ["#58a6ff", "#3fb950", "#d29922", "#f85149", "#bc8cff", "#f778ba", "#79c0ff", "#56d364"];
 const TOOLTIP_STYLE = { background: "var(--bg-secondary)", border: "1px solid var(--border)", borderRadius: 8, fontSize: 12 };
@@ -69,8 +70,8 @@ function MultiSelect({
 }
 
 /* ---------- Collapsible Section ---------- */
-function Section({ sectionKey, title, defaultOpen = true, children }: {
-  sectionKey: string; title: string; defaultOpen?: boolean; children: React.ReactNode;
+function Section({ sectionKey, title, infoKey, defaultOpen = true, children }: {
+  sectionKey: string; title: string; infoKey?: string; defaultOpen?: boolean; children: React.ReactNode;
 }) {
   const { dashboardSections, patch } = useUIState();
   const open = dashboardSections[`csv_${sectionKey}`] ?? defaultOpen;
@@ -82,6 +83,7 @@ function Section({ sectionKey, title, defaultOpen = true, children }: {
       <div className="dash-section-header" onClick={toggle}>
         <span className="dash-section-chevron">{open ? "▼" : "▶"}</span>
         <h3 className="dash-section-title">{title}</h3>
+        {infoKey && <InfoIcon id={infoKey} />}
       </div>
       {open && <div className="dash-section-body">{children}</div>}
     </div>
@@ -274,7 +276,7 @@ function PremiumContent({ data, apiData }: { data: PremiumCsvSection; apiData?: 
         </div>
       </div>
 
-      <Section sectionKey="premiumTrend" title={t("csvDash.dailyTrend")}>
+      <Section sectionKey="premiumTrend" title={t("csvDash.dailyTrend")} infoKey="csv_section_premiumTrend">
         <div className="dashboard-charts">
           <div className="chart-card chart-card-wide">
             {data.daily_trend.length > 0 ? (
@@ -294,10 +296,10 @@ function PremiumContent({ data, apiData }: { data: PremiumCsvSection; apiData?: 
         </div>
       </Section>
 
-      <Section sectionKey="premiumBreakdowns" title={t("csvDash.modelBreakdown")}>
+      <Section sectionKey="premiumBreakdowns" title={t("csvDash.modelBreakdown")} infoKey="csv_section_premiumBreakdowns">
         <div className="dashboard-charts">
           <div className="chart-card">
-            <h4>{t("csvDash.modelBreakdown")}</h4>
+            <ChartTitle text={t("csvDash.modelBreakdown")} infoKey="csv_chart_modelBreakdown" />
             {data.model_breakdown.length > 0 ? (
               <ResponsiveContainer width="100%" height={240}>
                 <PieChart>
@@ -314,7 +316,7 @@ function PremiumContent({ data, apiData }: { data: PremiumCsvSection; apiData?: 
             ) : <div className="chart-empty">{t("csvDash.noData")}</div>}
           </div>
           <div className="chart-card">
-            <h4>{t("csvDash.orgBreakdown")}</h4>
+            <ChartTitle text={t("csvDash.orgBreakdown")} infoKey="csv_chart_orgBreakdown" />
             {data.org_breakdown.length > 0 ? (
               <ResponsiveContainer width="100%" height={Math.max(200, data.org_breakdown.length * 36)}>
                 <BarChart data={data.org_breakdown} layout="vertical">
@@ -330,7 +332,7 @@ function PremiumContent({ data, apiData }: { data: PremiumCsvSection; apiData?: 
             ) : <div className="chart-empty">{t("csvDash.noData")}</div>}
           </div>
           <div className="chart-card">
-            <h4>{t("dashboard.costCenterBreakdown")}</h4>
+            <ChartTitle text={t("dashboard.costCenterBreakdown")} infoKey="csv_chart_costCenter" />
             {data.cost_center_breakdown.length > 0 ? (
               <ResponsiveContainer width="100%" height={Math.max(200, data.cost_center_breakdown.length * 36)}>
                 <BarChart data={data.cost_center_breakdown} layout="vertical">
@@ -348,7 +350,7 @@ function PremiumContent({ data, apiData }: { data: PremiumCsvSection; apiData?: 
         </div>
       </Section>
 
-      <Section sectionKey="premiumUsers" title={t("csvDash.userTable")}>
+      <Section sectionKey="premiumUsers" title={t("csvDash.userTable")} infoKey="csv_section_premiumUsers">
         <div className="dashboard-charts">
           <div className="chart-card chart-card-wide">
             {data.users.length > 0 ? (
@@ -444,7 +446,7 @@ function UsageContent({ data, apiData }: { data: UsageReportSection; apiData?: A
         </div>
       </div>
 
-      <Section sectionKey="usageTrend" title={t("csvDash.dailyTrend")}>
+      <Section sectionKey="usageTrend" title={t("csvDash.dailyTrend")} infoKey="csv_section_usageTrend">
         <div className="dashboard-charts">
           <div className="chart-card chart-card-wide">
             {data.daily_trend.length > 0 ? (
@@ -464,10 +466,10 @@ function UsageContent({ data, apiData }: { data: UsageReportSection; apiData?: A
         </div>
       </Section>
 
-      <Section sectionKey="usageBreakdowns" title={`${t("csvDash.productBreakdown")} & ${t("csvDash.skuBreakdown")}`}>
+      <Section sectionKey="usageBreakdowns" title={`${t("csvDash.productBreakdown")} & ${t("csvDash.skuBreakdown")}`} infoKey="csv_section_usageBreakdowns">
         <div className="dashboard-charts">
           <div className="chart-card">
-            <h4>{t("csvDash.productBreakdown")}</h4>
+            <ChartTitle text={t("csvDash.productBreakdown")} infoKey="csv_chart_productBreakdown" />
             {data.product_breakdown.length > 0 ? (
               <ResponsiveContainer width="100%" height={Math.max(120, data.product_breakdown.length * 40)}>
                 <BarChart data={data.product_breakdown} layout="vertical">
@@ -483,7 +485,7 @@ function UsageContent({ data, apiData }: { data: UsageReportSection; apiData?: A
             ) : <div className="chart-empty">{t("csvDash.noData")}</div>}
           </div>
           <div className="chart-card">
-            <h4>{t("csvDash.skuBreakdown")}</h4>
+            <ChartTitle text={t("csvDash.skuBreakdown")} infoKey="csv_chart_skuBreakdown" />
             {data.sku_breakdown.length > 0 ? (
               <ResponsiveContainer width="100%" height={Math.max(160, data.sku_breakdown.length * 40)}>
                 <BarChart data={data.sku_breakdown} layout="vertical">
@@ -499,7 +501,7 @@ function UsageContent({ data, apiData }: { data: UsageReportSection; apiData?: A
             ) : <div className="chart-empty">{t("csvDash.noData")}</div>}
           </div>
           <div className="chart-card">
-            <h4>{t("csvDash.orgBreakdown")}</h4>
+            <ChartTitle text={t("csvDash.orgBreakdown")} infoKey="csv_chart_orgBreakdown2" />
             {data.org_breakdown.length > 0 ? (
               <ResponsiveContainer width="100%" height={Math.max(160, data.org_breakdown.length * 36)}>
                 <BarChart data={data.org_breakdown} layout="vertical">
@@ -514,7 +516,7 @@ function UsageContent({ data, apiData }: { data: UsageReportSection; apiData?: A
             ) : <div className="chart-empty">{t("csvDash.noData")}</div>}
           </div>
           <div className="chart-card">
-            <h4>{t("dashboard.costCenterBreakdown")}</h4>
+            <ChartTitle text={t("dashboard.costCenterBreakdown")} infoKey="csv_chart_costCenter2" />
             {data.cost_center_breakdown.length > 0 ? (
               <ResponsiveContainer width="100%" height={Math.max(160, data.cost_center_breakdown.length * 36)}>
                 <BarChart data={data.cost_center_breakdown} layout="vertical">
@@ -532,7 +534,7 @@ function UsageContent({ data, apiData }: { data: UsageReportSection; apiData?: A
         </div>
       </Section>
 
-      <Section sectionKey="usageUsers" title={t("csvDash.userTable")}>
+      <Section sectionKey="usageUsers" title={t("csvDash.userTable")} infoKey="csv_section_usageUsers">
         <div className="dashboard-charts">
           <div className="chart-card chart-card-wide">
             {data.users.length > 0 ? (
@@ -602,7 +604,8 @@ export function CsvDashboard({ refreshKey, tab }: Props) {
 
   const params = useMemo(() => ({
     orgs, costCenters, products, skus, dateFrom, dateTo,
-  }), [orgs.join(","), costCenters.join(","), products.join(","), skus.join(","), dateFrom, dateTo]); // eslint-disable-line react-hooks/exhaustive-deps
+    groupId: ui.selectedGroupId,
+  }), [orgs.join(","), costCenters.join(","), products.join(","), skus.join(","), dateFrom, dateTo, ui.selectedGroupId]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const { data, loading } = useCsvDashboard(params);
 

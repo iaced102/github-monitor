@@ -101,15 +101,17 @@ export function useSync() {
   return { sync };
 }
 
-export function useDashboard(selectedOrgs: string[]) {
+export function useDashboard(selectedOrgs: string[], groupId?: number | null) {
   const [data, setData] = useState<DashboardData | null>(null);
   const [loading, setLoading] = useState(true);
 
   const fetchDashboard = useCallback(async () => {
     setLoading(true);
     try {
-      const params = selectedOrgs.length > 0 ? `?orgs=${selectedOrgs.join(",")}` : "";
-      const res = await fetch(`/api/data/dashboard${params}`);
+      const qp = new URLSearchParams();
+      if (selectedOrgs.length > 0) qp.set("orgs", selectedOrgs.join(","));
+      if (groupId) qp.set("group_id", String(groupId));
+      const res = await fetch(`/api/data/dashboard?${qp}`);
       const json = await res.json();
       setData(json);
     } catch {
@@ -117,7 +119,7 @@ export function useDashboard(selectedOrgs: string[]) {
     } finally {
       setLoading(false);
     }
-  }, [selectedOrgs.join(",")]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [selectedOrgs.join(","), groupId]); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
     fetchDashboard();
@@ -163,6 +165,7 @@ export function useCostCenterDashboard(params: {
   costCenters: string[];
   state: string;
   search: string;
+  groupId?: number | null;
 }) {
   const [data, setData] = useState<CostCenterDashboardData | null>(null);
   const [loading, setLoading] = useState(true);
@@ -175,6 +178,7 @@ export function useCostCenterDashboard(params: {
       if (params.costCenters.length) qp.set("cost_centers", params.costCenters.join(","));
       if (params.state) qp.set("state", params.state);
       if (params.search) qp.set("search", params.search);
+      if (params.groupId) qp.set("group_id", String(params.groupId));
       const res = await fetch(`/api/data/cost-center-dashboard?${qp}`);
       const json = await res.json();
       setData(json);
@@ -183,7 +187,7 @@ export function useCostCenterDashboard(params: {
     } finally {
       setLoading(false);
     }
-  }, [params.enterprise, params.costCenters.join(","), params.state, params.search]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [params.enterprise, params.costCenters.join(","), params.state, params.search, params.groupId]); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
     fetchData();
@@ -205,6 +209,7 @@ export function useCsvDashboard(params: {
   skus: string[];
   dateFrom: string;
   dateTo: string;
+  groupId?: number | null;
 }) {
   const [data, setData] = useState<CsvDashboardData | null>(null);
   const [loading, setLoading] = useState(true);
@@ -219,6 +224,7 @@ export function useCsvDashboard(params: {
       if (params.skus.length) qp.set("skus", params.skus.join(","));
       if (params.dateFrom) qp.set("date_from", params.dateFrom);
       if (params.dateTo) qp.set("date_to", params.dateTo);
+      if (params.groupId) qp.set("group_id", String(params.groupId));
       const res = await fetch(`/api/data/csv-dashboard?${qp}`);
       const json = await res.json();
       setData(json);
@@ -228,7 +234,34 @@ export function useCsvDashboard(params: {
       setLoading(false);
     }
   }, [params.orgs.join(","), params.costCenters.join(","), params.products.join(","), // eslint-disable-line react-hooks/exhaustive-deps
-      params.skus.join(","), params.dateFrom, params.dateTo]);
+      params.skus.join(","), params.dateFrom, params.dateTo, params.groupId]);
+
+  useEffect(() => {
+    fetchData();
+  }, [fetchData]);
+
+  return { data, loading, refetch: fetchData };
+}
+
+export function useUsageMonitor(selectedOrgs: string[], groupId?: number | null) {
+  const [data, setData] = useState<any | null>(null);
+  const [loading, setLoading] = useState(true);
+
+  const fetchData = useCallback(async () => {
+    setLoading(true);
+    try {
+      const qp = new URLSearchParams();
+      if (selectedOrgs.length > 0) qp.set("orgs", selectedOrgs.join(","));
+      if (groupId) qp.set("group_id", String(groupId));
+      const res = await fetch(`/api/data/usage-monitor?${qp}`);
+      const json = await res.json();
+      setData(json);
+    } catch {
+      setData(null);
+    } finally {
+      setLoading(false);
+    }
+  }, [selectedOrgs.join(","), groupId]); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
     fetchData();

@@ -4,7 +4,7 @@ const STORAGE_KEY = "octofinance-ui-state";
 
 export interface UIState {
   currentView: "chat" | "dashboard";
-  dashboardTab: "metrics" | "premium" | "usage" | "costcenter";
+  dashboardTab: "metrics" | "premium" | "usage" | "costcenter" | "monitor" | "groups";
   consoleOpen: boolean;
   sidebarWidth: number;
   sidebarCollapsed: Record<string, boolean>;
@@ -25,6 +25,8 @@ export interface UIState {
   ccDashCostCenters: string[];
   ccDashState: string;
   ccDashSearch: string;
+  // Group scope filter (applies to all dashboard tabs)
+  selectedGroupId: number | null;
 }
 
 
@@ -54,6 +56,7 @@ const DEFAULTS: UIState = {
   ccDashCostCenters: [],
   ccDashState: "active",
   ccDashSearch: "",
+  selectedGroupId: null,
 };
 
 interface UIStateContextValue extends UIState {
