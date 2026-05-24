@@ -241,6 +241,7 @@ export interface ApiUsageUser {
 
 export interface ApiUsageSection {
   has_data: boolean;
+  scope_filtered?: boolean;
   date_range: { start: string; end: string };
   total_users: number;
   users: ApiUsageUser[];

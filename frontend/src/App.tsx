@@ -95,12 +95,8 @@ function AppLayout({ onLogout }: { onLogout: () => void }) {
     });
   }, [setOnSyncComplete]);
 
-  // Auto-open console when sync starts
-  useEffect(() => {
-    if (syncing) {
-      setConsoleOpen(true);
-    }
-  }, [syncing]);
+  // Auto-open console when sync starts (only if user already had it open once)
+  // Removed: was causing console to pop open automatically on every sync
 
   const togglePanel = useCallback((key: string) => {
     ui.patch({ sidebarCollapsed: { ...ui.sidebarCollapsed, [key]: !ui.sidebarCollapsed[key] } });

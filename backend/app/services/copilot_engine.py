@@ -53,6 +53,11 @@ Available data dimensions:
 - Billing: plan type, cost per seat, total cost, waste
 - Metrics: detailed IDE completions, chat usage, PR summaries (legacy API)
 - Premium Requests: per-model breakdown of premium request consumption, pricing, and costs
+- Feature Adoption: which users use chat, agent mode, CLI, Copilot Coding Agent, Cloud Agent
+- LoC Productivity: lines of code suggested vs accepted per user (loc_suggested vs loc_added)
+- IDE Distribution: which editors (VSCode, IntelliJ, Vim, etc.) are being used
+- Model Usage: which AI models are used for which features (completions, chat, agent)
+- Language Adoption: which programming languages get the most/least Copilot engagement
 
 Copilot Premium Requests quota (included free per user per month):
 - Copilot Business: 300 premium requests/user/month
@@ -62,6 +67,8 @@ Note: Per-user premium request breakdown is NOT available via API — only org-l
 
 For usage data, prefer the new usage report tools (get_usage_report, get_users_usage_report) which use the latest Copilot Usage Metrics API.
 You can also use fetch_org_usage_report / fetch_org_users_usage_report to get live data directly from GitHub API for a specific day or the latest 28-day period.
+For enterprise-wide analysis, use fetch_enterprise_usage_report / fetch_enterprise_users_usage_report.
+For deeper analysis, use: get_feature_adoption (feature adoption funnel), get_loc_metrics (lines-of-code productivity), get_ide_distribution (editor breakdown), get_model_usage (per-model engagement), get_language_adoption (language × feature breakdown), get_cli_token_usage (CLI token consumption per user), get_usage_trends (day-by-day 28-day trends), get_user_activity_timeline (individual user daily activity), get_dormant_users (users who stopped mid-period vs new adopters), get_never_used_seats (seats that have never been used — pure waste).
 """
 
 

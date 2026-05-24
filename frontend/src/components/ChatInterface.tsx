@@ -60,6 +60,14 @@ export function ChatInterface({ messages, isLoading, sendMessage, abort, clearMe
                 </button>
               ))}
             </div>
+            <div className="chat-tips">
+              <p className="chat-tips-title">{t("chat.tipsTitle")}</p>
+              <ul className="chat-tips-list">
+                <li>{t("chat.tip1")}</li>
+                <li>{t("chat.tip2")}</li>
+                <li>{t("chat.tip3")}</li>
+              </ul>
+            </div>
           </div>
         )}
         {messages.map((msg) => (

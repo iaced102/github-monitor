@@ -222,6 +222,7 @@ const translations = {
     "csvDash.allSkus": "All SKUs",
     "csvDash.noData": "No CSV data. Upload a CSV file to get started.",
     "csvDash.noDataType": "No data for this CSV type yet.",
+    "csvDash.noDataGroup": "No data available for the selected group.",
     "csvDash.dateFrom": "From",
     "csvDash.dateTo": "To",
     "csvDash.totalRequests": "Total Requests",
@@ -481,7 +482,7 @@ const translations = {
     // Navigation
     "nav.chat": "\u5bf9\u8bdd",
     "nav.dashboard": "\u6570\u636e\u9762\u677f",
-    "nav.dashMetrics": "Usage Metrics",
+    "nav.dashMetrics": "使用指标",
 
     // Cost Center Dashboard
     "ccDash.tab": "\u6210\u672c\u4e2d\u5fc3",
@@ -601,6 +602,7 @@ const translations = {
     "csvDash.allSkus": "\u5168\u90e8 SKU",
     "csvDash.noData": "\u6682\u65e0 CSV \u6570\u636e\uff0c\u8bf7\u4e0a\u4f20 CSV \u6587\u4ef6\u3002",
     "csvDash.noDataType": "\u6b64\u7c7b\u578b\u7684 CSV \u6570\u636e\u5c1a\u672a\u4e0a\u4f20\u3002",
+    "csvDash.noDataGroup": "\u6240\u9009\u7ec4\u6ca1\u6709\u53ef\u7528\u6570\u636e\u3002",
     "csvDash.dateFrom": "\u5f00\u59cb",
     "csvDash.dateTo": "\u7ed3\u675f",
     "csvDash.totalRequests": "\u8bf7\u6c42\u603b\u6570",
@@ -823,7 +825,7 @@ const translations = {
     "actions.savings": "Tiết kiệm ước tính",
 
     // Console
-    "console.title": "Bảng điều khiển",
+    "console.title": "Nhật ký",
     "console.clear": "Xóa",
     "console.close": "Đóng",
     "console.minimize": "Thu gọn",
@@ -978,6 +980,7 @@ const translations = {
     "csvDash.allSkus": "Tất cả SKU",
     "csvDash.noData": "Không có dữ liệu CSV. Tải lên tệp CSV để bắt đầu.",
     "csvDash.noDataType": "Chưa có dữ liệu cho loại CSV này.",
+    "csvDash.noDataGroup": "Không có dữ liệu cho nhóm đã chọn.",
     "csvDash.dateFrom": "Từ",
     "csvDash.dateTo": "Đến",
     "csvDash.totalRequests": "Tổng yêu cầu",
@@ -1028,7 +1031,7 @@ const translations = {
     "loading.actions": "Đang tải hành động...",
 
     // Usage Monitor
-    "monitor.tab": "Monitor",
+    "monitor.tab": "Giám sát",
     "monitor.uniqueModels": "Số Model sử dụng",
     "monitor.topModel": "Model phổ biến nhất",
     "monitor.totalInteractions": "Tổng tương tác",

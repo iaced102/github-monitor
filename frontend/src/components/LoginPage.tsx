@@ -65,8 +65,6 @@ export function LoginPage({ setupRequired, onLogin }: Props) {
         </div>
 
         <form onSubmit={handleSubmit} className="login-form">
-          {error && <div className="login-error">{error}</div>}
-
           <div className="login-field">
             <label>{t("auth.username")}</label>
             <input
@@ -117,6 +115,7 @@ export function LoginPage({ setupRequired, onLogin }: Props) {
                 ? t("auth.setup")
                 : t("auth.loginBtn")}
           </button>
+          {error && <div className="login-error">{error}</div>}
         </form>
 
         <div className="login-footer">

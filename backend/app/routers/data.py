@@ -248,8 +248,26 @@ async def get_dashboard(request: Request, orgs: str = Query(default=""), group_i
         if not billing and not seats_data:
             continue
         available_orgs.append(org_name)
-        if billing and not billing.get("_billing_scope_error"):
-            price = billing.get("_detected_price_per_seat", 19.0)
+        price = billing.get("_detected_price_per_seat", 19.0) if billing else 39.0
+
+        if scope_users is not None:
+            # When a group scope is active, compute KPIs by iterating individual seats
+            has_billing_error = True  # treat as derived
+            s = 0
+            a = 0
+            for seat in (seats_data or {}).get("seats", []):
+                login = (seat.get("assignee") or {}).get("login", "")
+                if login not in scope_users:
+                    continue
+                s += 1
+                last = seat.get("last_activity_at")
+                if last:
+                    try:
+                        if (_now - datetime.fromisoformat(last.replace("Z", "+00:00"))).days < 30:
+                            a += 1
+                    except (ValueError, TypeError):
+                        pass
+        elif billing and not billing.get("_billing_scope_error"):
             sb = billing.get("seat_breakdown", {})
             s = sb.get("total", 0)
             a = sb.get("active_this_cycle", 0)
@@ -598,7 +616,7 @@ def _build_api_usage_section(scope_users: set[str] | None = None) -> dict:
                 u["ides"][ide] += ide_data.get("code_generation_activity_count", 0)
 
     if not user_agg:
-        return {"has_data": False, "users": [], "date_range": {}, "total_users": 0}
+        return {"has_data": False, "scope_filtered": scope_users is not None, "users": [], "date_range": {}, "total_users": 0}
 
     users = sorted(
         [
@@ -1528,9 +1546,13 @@ def _build_seat_fallback(scope: str, scope_users: set[str] | None = None) -> dic
             a["days_active"] += 1
 
     users = []
+    seen_logins: set[str] = set()
     for seat in seats_data.get("seats", []):
         assignee = seat.get("assignee", {})
         login = assignee.get("login", "")
+        if not login or login in seen_logins:
+            continue
+        seen_logins.add(login)
         if scope_users is not None and login.lower() not in scope_users:
             continue
         team = seat.get("assigning_team")

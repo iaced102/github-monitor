@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback, useRef } from "react";
+import type React from "react";
 import { useSync, useCsvInfo } from "../hooks/useData";
 import { useTheme } from "../contexts/ThemeContext";
 import { useI18n } from "../contexts/I18nContext";
@@ -12,9 +13,12 @@ interface Props {
   currentView: "chat" | "dashboard";
   onViewChange: (view: "chat" | "dashboard") => void;
   onLogout: () => void;
+  alertBadge?: React.ReactNode;
+  sidebarOpen?: boolean;
+  onToggleSidebar?: () => void;
 }
 
-export function StatusBar({ consoleOpen, onToggleConsole, onPATChange, syncing = false, currentView, onViewChange, onLogout }: Props) {
+export function StatusBar({ consoleOpen, onToggleConsole, onPATChange, syncing = false, currentView, onViewChange, onLogout, alertBadge, sidebarOpen, onToggleSidebar }: Props) {
   const { sync } = useSync();
   const { theme, toggleTheme } = useTheme();
   const { lang, toggleLang, t } = useI18n();
@@ -88,6 +92,16 @@ export function StatusBar({ consoleOpen, onToggleConsole, onPATChange, syncing =
   return (
     <div className="status-bar">
       <div className="status-left">
+        {onToggleSidebar && (
+          <button
+            className={`btn btn-small btn-toggle sidebar-toggle-btn${sidebarOpen ? " btn-toggle-active" : ""}`}
+            onClick={onToggleSidebar}
+            title="Toggle sidebar"
+            aria-label="Toggle sidebar"
+          >
+            ☰
+          </button>
+        )}
         <span className="app-title">OctoFinance</span>
         {health && (
           <>
@@ -119,6 +133,7 @@ export function StatusBar({ consoleOpen, onToggleConsole, onPATChange, syncing =
             {t("nav.dashboard")}
           </button>
         </div>
+        {alertBadge}
         <button
           className="btn btn-small btn-toggle"
           onClick={() => setSettingsOpen(true)}
@@ -161,7 +176,7 @@ export function StatusBar({ consoleOpen, onToggleConsole, onPATChange, syncing =
           )}
           {csvMessage && <span className="csv-upload-msg">{csvMessage}</span>}
         </div>
-        <button className="btn btn-small" onClick={handleSync} disabled={syncing}>
+        <button className="btn btn-small" onClick={handleSync} disabled={syncing} title={t("status.syncDataHint")}>
           {syncing ? t("status.syncing") : t("status.syncData")}
         </button>
         <button

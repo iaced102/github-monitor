@@ -418,6 +418,7 @@ function UsageContent({ data, apiData }: { data: UsageReportSection; apiData?: A
 
   if (!data.has_data) {
     if (apiData?.has_data) return <ApiUsageContent data={apiData} />;
+    if (apiData?.scope_filtered) return <div className="dashboard-empty">{t("csvDash.noDataGroup")}</div>;
     return <div className="dashboard-empty">{t("csvDash.noDataType")}</div>;
   }
 

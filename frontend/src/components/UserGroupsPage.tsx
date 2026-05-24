@@ -64,6 +64,12 @@ function MemberList({ groupId, onClose }: MemberListProps) {
 
   useEffect(() => { loadMembers(); }, [loadMembers]);
 
+  useEffect(() => {
+    const handler = (e: KeyboardEvent) => { if (e.key === "Escape") onClose(); };
+    document.addEventListener("keydown", handler);
+    return () => document.removeEventListener("keydown", handler);
+  }, [onClose]);
+
   const handleAdd = async () => {
     const names = newNames.split(",").map((s) => s.trim()).filter(Boolean);
     if (!names.length) return;
@@ -134,6 +140,12 @@ function ManagerGroupsEditor({ manager, allGroups, onSave, onClose }: ManagerGro
   const { t } = useI18n();
   const [selected, setSelected] = useState<Set<number>>(new Set(manager.groups.map((g) => g.id)));
   const [saving, setSaving] = useState(false);
+
+  useEffect(() => {
+    const handler = (e: KeyboardEvent) => { if (e.key === "Escape") onClose(); };
+    document.addEventListener("keydown", handler);
+    return () => document.removeEventListener("keydown", handler);
+  }, [onClose]);
 
   const toggle = (id: number) => {
     setSelected((prev) => {

@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useI18n } from "../contexts/I18nContext";
 import { usePATs } from "../hooks/usePATs";
 
@@ -45,6 +45,12 @@ export function PATSettingsModal({ onClose, onPATChange }: Props) {
   const [token, setToken] = useState("");
   const [enterpriseSlug, setEnterpriseSlug] = useState("");
   const [confirmDelete, setConfirmDelete] = useState<string | null>(null);
+
+  useEffect(() => {
+    const handler = (e: KeyboardEvent) => { if (e.key === "Escape") onClose(); };
+    document.addEventListener("keydown", handler);
+    return () => document.removeEventListener("keydown", handler);
+  }, [onClose]);
 
   const handleAdd = async () => {
     if (!token.trim()) return;
@@ -161,13 +167,14 @@ export function PATSettingsModal({ onClose, onPATChange }: Props) {
               />
             </div>
             <div className="pat-form-row">
-              <label>{t("settings.patEnterprise")}</label>
+              <label title={t("settings.patEnterpriseHint")}>{t("settings.patEnterprise")} <span className="pat-label-hint">ℹ</span></label>
               <input
                 type="text"
                 value={enterpriseSlug}
                 onChange={(e) => setEnterpriseSlug(e.target.value)}
-                placeholder="e.g. my-enterprise"
+                placeholder="e.g. my-enterprise (github.com/enterprises/SLUG)"
                 onKeyDown={handleKeyDown}
+                title={t("settings.patEnterpriseHint")}
               />
             </div>
             <p className="pat-form-hint pat-enterprise-hint">{t("settings.patEnterpriseHint")}</p>
