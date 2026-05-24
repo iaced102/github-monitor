@@ -896,6 +896,22 @@ body {
   border-bottom: none;
 }
 
+.console-separator {
+  display: flex;
+  align-items: center;
+  padding: 4px 12px;
+  border-bottom: 1px solid var(--border);
+}
+
+.console-separator-label {
+  font-size: 10px;
+  color: var(--text-muted);
+  letter-spacing: 0.5px;
+  width: 100%;
+  text-align: center;
+  opacity: 0.7;
+}
+
 .console-entry-header {
   display: flex;
   align-items: baseline;
@@ -2781,6 +2797,22 @@ body {
   cursor: pointer;
   max-width: 200px;
 }
+.group-filter-select.group-filter-active {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 2px rgba(88, 166, 255, 0.2);
+}
+.group-filter-badge {
+  font-size: 10px;
+  font-weight: 700;
+  color: var(--accent);
+  background: rgba(88, 166, 255, 0.15);
+  border: 1px solid rgba(88, 166, 255, 0.4);
+  border-radius: 10px;
+  padding: 1px 7px;
+  white-space: nowrap;
+  letter-spacing: 0.3px;
+  text-transform: uppercase;
+}
 
 /* ─────────────────────────────────────────────
    User Groups Page
@@ -2994,6 +3026,15 @@ body {
 .groups-member-name {
   font-size: 13px;
   color: var(--text-primary);
+}
+.groups-remove-confirm {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+.groups-remove-confirm-label {
+  font-size: 11px;
+  color: var(--danger);
 }
 
 /* CSV Import */

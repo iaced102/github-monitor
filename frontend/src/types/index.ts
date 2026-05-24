@@ -78,7 +78,7 @@ export interface SessionInfo {
 export interface ConsoleEntry {
   id: string;
   timestamp: number;
-  type: "tool_start" | "tool_complete" | "thinking" | "usage" | "error" | "user" | "assistant" | "sync";
+  type: "tool_start" | "tool_complete" | "thinking" | "usage" | "error" | "user" | "assistant" | "sync" | "separator";
   title: string;
   detail?: string;
 }

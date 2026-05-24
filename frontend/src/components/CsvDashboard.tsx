@@ -603,6 +603,15 @@ export function CsvDashboard({ refreshKey, tab }: Props) {
   const dateTo = ui.csvDashDateTo;
   const setDateTo = useCallback((v: string) => ui.patch({ csvDashDateTo: v }), [ui.patch]);
 
+  // Default date range: last 28 days (used as placeholder when no data loaded)
+  const defaultDateRange = useMemo(() => {
+    const to = new Date();
+    const from = new Date();
+    from.setDate(from.getDate() - 27);
+    const fmt = (d: Date) => d.toISOString().slice(0, 10);
+    return { start: fmt(from), end: fmt(to) };
+  }, []);
+
   const params = useMemo(() => ({
     orgs, costCenters, products, skus, dateFrom, dateTo,
     groupId: ui.selectedGroupId,
@@ -664,14 +673,14 @@ export function CsvDashboard({ refreshKey, tab }: Props) {
           <input
             type="date"
             className="dashboard-date-input"
-            value={dateFrom || activeDateRange?.start || ""}
+            value={dateFrom || activeDateRange?.start || defaultDateRange.start}
             onChange={(e) => setDateFrom(e.target.value)}
           />
           <span className="dashboard-date-sep">—</span>
           <input
             type="date"
             className="dashboard-date-input"
-            value={dateTo || activeDateRange?.end || ""}
+            value={dateTo || activeDateRange?.end || defaultDateRange.end}
             onChange={(e) => setDateTo(e.target.value)}
           />
         </div>

@@ -15,7 +15,7 @@ export function useChat() {
   const thinkingRef = useRef("");
   const toolNameMap = useRef<Record<string, string>>({});
 
-  const sendMessage = useCallback(async (content: string, sessionId = "default") => {
+  const sendMessage = useCallback(async (content: string, sessionId = "default", groupId: number | null = null) => {
     const userMsg: ChatMessage = {
       id: Date.now().toString(),
       role: "user",
@@ -48,7 +48,7 @@ export function useChat() {
       const response = await fetch("/api/chat", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ message: content, session_id: sessionId }),
+        body: JSON.stringify({ message: content, session_id: sessionId, group_id: groupId }),
         signal: abortRef.current.signal,
       });
 
@@ -259,7 +259,10 @@ export function useChat() {
   }, []);
 
   const addConsoleLog = useCallback((entry: ConsoleEntry) => {
-    setConsoleLogs((prev) => [...prev, entry]);
+    setConsoleLogs((prev) => {
+      const next = [...prev, entry];
+      return next.length > 500 ? next.slice(next.length - 500) : next;
+    });
   }, []);
 
   return { messages, isLoading, activeTools, consoleLogs, sendMessage, abort, clearMessages, clearConsole, loadMessages, setMessagesDirectly, addConsoleLog };

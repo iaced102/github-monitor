@@ -11,6 +11,7 @@ from sse_starlette.sse import EventSourceResponse
 
 from ..services.copilot_engine import copilot_engine
 from ..services.session_manager import session_manager, SESSIONS_DIR
+from ..services import database as db_module
 
 router = APIRouter(tags=["chat"])
 
@@ -18,18 +19,60 @@ router = APIRouter(tags=["chat"])
 class ChatRequest(BaseModel):
     message: str
     session_id: str = "default"
+    group_id: int | None = None
+
+
+def _build_scope_prefix(request: Request, group_id: int | None) -> str:
+    """Build a scope context prefix for the AI message when a group filter is active."""
+    user = getattr(request.state, "current_user", None)
+    if not user:
+        return ""
+
+    db = db_module.db
+    if db is None:
+        return ""
+
+    scope_members: list[str] | None = None
+    group_name: str | None = None
+
+    if user["role"] == "super_admin" and group_id:
+        members = db.get_group_members(group_id)
+        if members:
+            scope_members = list(members)
+            group_obj = db.get_group(group_id)
+            group_name = group_obj.get("name") if group_obj else None
+    elif user["role"] == "manager":
+        gids = db.get_manager_group_ids(user["username"])
+        if gids:
+            scope_members = list(db.get_all_group_usernames(gids))
+            groups = db.get_manager_groups(user["username"])
+            group_name = ", ".join(g["name"] for g in groups) if groups else None
+
+    if not scope_members:
+        return ""
+
+    members_str = ", ".join(scope_members[:20])
+    if len(scope_members) > 20:
+        members_str += f" ... (+{len(scope_members) - 20} more)"
+    scope_label = f'group "{group_name}"' if group_name else "selected group"
+    return (
+        f"[SCOPE CONTEXT] The user is currently viewing data scoped to {scope_label} "
+        f"({len(scope_members)} members: {members_str}). "
+        f"When answering questions about users, seats, costs, or usage, "
+        f"focus only on these members unless the user explicitly asks for all users.\n\n"
+    )
 
 
 @router.post("/chat")
-async def chat(request: ChatRequest):
+async def chat(request: Request, req: ChatRequest):
     """Send a message to the AI FinOps engine and receive streaming response via SSE."""
 
-    sid = request.session_id
+    sid = req.session_id
 
     # Auto-create session if it doesn't exist
     if not session_manager.session_exists(sid):
-        title = request.message[:50].strip()
-        if len(request.message) > 50:
+        title = req.message[:50].strip()
+        if len(req.message) > 50:
             title += "..."
         session_manager.create_session(session_id=sid, title=title)
 
@@ -37,17 +80,21 @@ async def chat(request: ChatRequest):
     user_msg = {
         "id": str(int(time.time() * 1000)),
         "role": "user",
-        "content": request.message,
+        "content": req.message,
         "timestamp": int(time.time() * 1000),
     }
     session_manager.append_message(sid, user_msg)
+
+    # Build scoped message (prepend group context if a scope is active)
+    scope_prefix = _build_scope_prefix(request, req.group_id)
+    scoped_message = scope_prefix + req.message
 
     session_dir = str(SESSIONS_DIR / sid)
 
     async def event_generator():
         full_content = ""
         try:
-            async for event in copilot_engine.chat(request.message, sid, working_directory=session_dir):
+            async for event in copilot_engine.chat(scoped_message, sid, working_directory=session_dir):
                 # Track assistant text
                 if event["type"] == "delta":
                     full_content += event.get("content", "")

@@ -126,6 +126,7 @@ export function UsageMonitorDashboard({ refreshKey: _refreshKey, selectedOrgs }:
               <div className="stat-label">{t("monitor.totalCodeGen")}</div>
             </div>
             <div className="stat-card">
+              <InfoIcon id="mon_activeUsers" />
               <div className="stat-value">{kpi.active_users}</div>
               <div className="stat-label">{t("monitor.activeUsers")}</div>
             </div>

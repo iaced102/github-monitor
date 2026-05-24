@@ -12,6 +12,21 @@ import { InfoIcon, ChartTitle } from "./InfoIcon";
 const COLORS = ["#58a6ff", "#3fb950", "#d29922", "#f85149", "#bc8cff", "#f778ba", "#79c0ff", "#56d364"];
 const TOOLTIP_STYLE = { background: "var(--bg-secondary)", border: "1px solid var(--border)", borderRadius: 8, fontSize: 12 };
 
+const FEATURE_NAME_MAP: Record<string, string> = {
+  chat_panel_agent_mode: "Chat – Agent Mode",
+  chat_panel_custom_mode: "Chat – Custom Mode",
+  chat_panel_default: "Chat – Default",
+  copilot_cli: "Copilot CLI",
+  agent_edit: "Agent Edit",
+  inline_suggestions: "Inline Suggestions",
+  code_completions: "Code Completions",
+  pull_request_summaries: "Pull Request Summaries",
+  code_review: "Code Review",
+  test_generation: "Test Generation",
+  explain_and_fix: "Explain & Fix",
+  documentation: "Documentation",
+};
+
 interface Props {
   refreshKey: number;
 }
@@ -294,7 +309,7 @@ export function Dashboard({ refreshKey }: Props) {
                       <tbody>
                         {data.feature_usage.map((f) => (
                           <tr key={f.feature}>
-                            <td className="user-name">{f.feature}</td>
+                            <td className="user-name">{FEATURE_NAME_MAP[f.feature] ?? f.feature}</td>
                             <td>{f.interactions.toLocaleString()}</td>
                             <td>{f.code_gen.toLocaleString()}</td>
                             <td>{f.code_accept.toLocaleString()}</td>

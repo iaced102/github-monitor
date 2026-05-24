@@ -56,6 +56,7 @@ function MemberList({ groupId, onClose }: MemberListProps) {
   const [members, setMembers] = useState<string[]>([]);
   const [newNames, setNewNames] = useState("");
   const [saving, setSaving] = useState(false);
+  const [confirmRemove, setConfirmRemove] = useState<string | null>(null);
 
   const loadMembers = useCallback(async () => {
     const data = await apiGet(`/api/groups/${groupId}/members`);
@@ -82,6 +83,7 @@ function MemberList({ groupId, onClose }: MemberListProps) {
 
   const handleRemove = async (username: string) => {
     await apiDelete(`/api/groups/${groupId}/members/${username}`);
+    setConfirmRemove(null);
     await loadMembers();
   };
 
@@ -112,13 +114,21 @@ function MemberList({ groupId, onClose }: MemberListProps) {
               members.map((m) => (
                 <div key={m} className="groups-member-row">
                   <span className="groups-member-name">@{m}</span>
-                  <button
-                    className="btn btn-tiny btn-danger"
-                    onClick={() => handleRemove(m)}
-                    title={t("groups.removeMember")}
-                  >
-                    ✕
-                  </button>
+                  {confirmRemove === m ? (
+                    <span className="groups-remove-confirm">
+                      <span className="groups-remove-confirm-label">{t("groups.confirmRemove")}</span>
+                      <button className="btn btn-tiny btn-danger" onClick={() => handleRemove(m)}>{t("groups.yes")}</button>
+                      <button className="btn btn-tiny" onClick={() => setConfirmRemove(null)}>{t("groups.no")}</button>
+                    </span>
+                  ) : (
+                    <button
+                      className="btn btn-tiny btn-danger"
+                      onClick={() => setConfirmRemove(m)}
+                      title={t("groups.removeMember")}
+                    >
+                      ✕
+                    </button>
+                  )}
                 </div>
               ))
             )}
@@ -226,6 +236,9 @@ export function UserGroupsPage() {
   const [newMgrPassword, setNewMgrPassword] = useState("");
   const [newMgrGroups, setNewMgrGroups] = useState<Set<number>>(new Set());
   const [mgrSaving, setMgrSaving] = useState(false);
+  const [resetPasswordFor, setResetPasswordFor] = useState<string | null>(null);
+  const [resetPasswordValue, setResetPasswordValue] = useState("");
+  const [resetPasswordSaving, setResetPasswordSaving] = useState(false);
 
   // Import state
   const [importFile, setImportFile] = useState<File | null>(null);
@@ -293,6 +306,15 @@ export function UserGroupsPage() {
     if (!confirm(t("groups.deleteManagerConfirm"))) return;
     await apiDelete(`/api/managers/${username}`);
     await loadManagers();
+  };
+
+  const handleResetPassword = async () => {
+    if (!resetPasswordFor || !resetPasswordValue.trim()) return;
+    setResetPasswordSaving(true);
+    await apiPut(`/api/managers/${resetPasswordFor}/password`, { password: resetPasswordValue.trim() });
+    setResetPasswordFor(null);
+    setResetPasswordValue("");
+    setResetPasswordSaving(false);
   };
 
   // ── CSV Import ───────────────────────────────────────────────────────────
@@ -497,6 +519,9 @@ export function UserGroupsPage() {
                     <button className="btn btn-tiny" onClick={() => setEditingManager(m)}>
                       ✏️ {t("groups.editManagerGroups")}
                     </button>
+                    <button className="btn btn-tiny" onClick={() => { setResetPasswordFor(m.username); setResetPasswordValue(""); }}>
+                      🔑 {t("groups.resetPassword")}
+                    </button>
                     <button className="btn btn-tiny btn-danger" onClick={() => handleDeleteManager(m.username)}>
                       {t("groups.deleteManager")}
                     </button>
@@ -513,6 +538,34 @@ export function UserGroupsPage() {
               onSave={loadManagers}
               onClose={() => setEditingManager(null)}
             />
+          )}
+
+          {resetPasswordFor && (
+            <div className="groups-modal-overlay" onClick={() => setResetPasswordFor(null)}>
+              <div className="groups-modal" onClick={(e) => e.stopPropagation()}>
+                <div className="groups-modal-header">
+                  <h3>{t("groups.resetPassword")} @{resetPasswordFor}</h3>
+                  <button className="groups-modal-close" onClick={() => setResetPasswordFor(null)}>✕</button>
+                </div>
+                <div className="groups-modal-body">
+                  <input
+                    className="groups-input"
+                    type="password"
+                    value={resetPasswordValue}
+                    onChange={(e) => setResetPasswordValue(e.target.value)}
+                    placeholder={t("groups.newPassword")}
+                    onKeyDown={(e) => e.key === "Enter" && handleResetPassword()}
+                    autoFocus
+                  />
+                </div>
+                <div className="groups-modal-actions">
+                  <button className="btn btn-small btn-primary" onClick={handleResetPassword} disabled={resetPasswordSaving || !resetPasswordValue.trim()}>
+                    {resetPasswordSaving ? "…" : t("groups.save")}
+                  </button>
+                  <button className="btn btn-small" onClick={() => setResetPasswordFor(null)}>{t("groups.cancel")}</button>
+                </div>
+              </div>
+            </div>
           )}
         </div>
       )}

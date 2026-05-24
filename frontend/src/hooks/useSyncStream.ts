@@ -64,6 +64,13 @@ export function useSyncStream(onLog: (entry: ConsoleEntry) => void) {
 
         // Detect transition: not syncing -> syncing = sync started
         if (!prevSyncingRef.current && isSyncing) {
+          // Emit separator to visually separate this sync session from previous logs
+          onLogRef.current({
+            id: nextSyncId(),
+            timestamp: Date.now(),
+            type: "separator",
+            title: new Date().toLocaleTimeString(),
+          });
           if (!sseConnectedRef.current) {
             onLogRef.current({
               id: nextSyncId(),

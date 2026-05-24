@@ -1,5 +1,6 @@
 import { useOverview } from "../hooks/useData";
 import { useI18n } from "../contexts/I18nContext";
+import { InfoIcon } from "./InfoIcon";
 
 export function OverviewPanel() {
   const { overview, loading } = useOverview();
@@ -19,6 +20,7 @@ export function OverviewPanel() {
           <div className="stat-label">{t("sidebar.totalSeats")}</div>
         </div>
         <div className="stat-card">
+          <InfoIcon id="kpi_active_seats" />
           <div className="stat-value">{overview.total_active_seats}</div>
           <div className="stat-label">{t("sidebar.active")}</div>
         </div>

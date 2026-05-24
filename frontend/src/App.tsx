@@ -111,10 +111,10 @@ function AppLayout({ onLogout }: { onLogout: () => void }) {
       const autoTitle = content.trim().slice(0, 40) + (content.trim().length > 40 ? "…" : "");
       await sessions.updateSessionTitle(sid, autoTitle);
     }
-    await chat.sendMessage(content, sid);
+    await chat.sendMessage(content, sid, ui.selectedGroupId);
     sessions.loadSessions();
     setRefreshKey((k) => k + 1);
-  }, [chat.sendMessage, sessions.currentSessionId, sessions.loadSessions, sessions.sessions, sessions.updateSessionTitle]);
+  }, [chat.sendMessage, sessions.currentSessionId, sessions.loadSessions, sessions.sessions, sessions.updateSessionTitle, ui.selectedGroupId]);
 
   // Switch session: load messages from backend, clear console
   const handleSwitchSession = useCallback(async (sessionId: string) => {

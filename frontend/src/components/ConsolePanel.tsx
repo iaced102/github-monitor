@@ -17,6 +17,7 @@ const TYPE_LABELS: Record<ConsoleEntry["type"], string> = {
   user: "USER",
   assistant: "AI",
   sync: "SYNC",
+  separator: "---",
 };
 
 const TYPE_COLORS: Record<ConsoleEntry["type"], string> = {
@@ -28,6 +29,7 @@ const TYPE_COLORS: Record<ConsoleEntry["type"], string> = {
   user: "var(--text-secondary)",
   assistant: "var(--accent)",
   sync: "var(--info, #2196f3)",
+  separator: "var(--border)",
 };
 
 function formatTime(ts: number) {
@@ -48,6 +50,14 @@ function ConsoleEntryRow({ entry }: { entry: ConsoleEntry }) {
   const [expanded, setExpanded] = useState(false);
   const hasDetail = !!entry.detail;
   const formattedDetail = tryFormatJson(entry.detail);
+
+  if (entry.type === "separator") {
+    return (
+      <div className="console-separator">
+        <span className="console-separator-label">── Sync {entry.title} ──</span>
+      </div>
+    );
+  }
 
   return (
     <div className={`console-entry console-entry-${entry.type}`}>

@@ -55,7 +55,7 @@ export function GroupFilter() {
     <div className="group-filter">
       <label className="group-filter-label">{t("groups.filterLabel")}</label>
       <select
-        className="group-filter-select"
+        className={`group-filter-select${selectedGroupId !== null ? " group-filter-active" : ""}`}
         value={selectedGroupId ?? ""}
         onChange={(e) => {
           const val = e.target.value;
@@ -71,6 +71,9 @@ export function GroupFilter() {
           </option>
         ))}
       </select>
+      {selectedGroupId !== null && (
+        <span className="group-filter-badge">{t("groups.filtered")}</span>
+      )}
     </div>
   );
 }
