@@ -85,7 +85,10 @@ export function UIStateProvider({ children }: { children: ReactNode }) {
   });
 
   useEffect(() => {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
+    // Don't persist ephemeral group filter — should reset each session
+    const { selectedGroupId, selectedGroupName, ...toSave } = state;
+    void selectedGroupId; void selectedGroupName;
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(toSave));
   }, [state]);
 
   const patch = useCallback((partial: Partial<UIState>) => {

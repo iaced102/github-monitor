@@ -1,4 +1,4 @@
-import { useCallback } from "react";
+import { useCallback, useEffect } from "react";
 import { useI18n } from "../contexts/I18nContext";
 import { useUIState } from "../contexts/UIStateContext";
 import { useCurrentUser } from "../contexts/AuthContext";
@@ -26,6 +26,13 @@ export function UnifiedDashboard({ refreshKey }: Props) {
 
   const selectedOrgs = ui.dashboardSelectedOrgs ?? [];
   const isSuperAdmin = currentUser?.role === "super_admin";
+
+  // Redirect managers away from the groups-admin tab
+  useEffect(() => {
+    if (!isSuperAdmin && tab === "groups") {
+      ui.patch({ dashboardTab: "metrics" });
+    }
+  }, [isSuperAdmin, tab]); // eslint-disable-line react-hooks/exhaustive-deps
 
   return (
     <div className="unified-dashboard">

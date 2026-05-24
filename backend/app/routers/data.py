@@ -723,13 +723,53 @@ def _build_api_usage_section(scope_users: set[str] | None = None) -> dict:
     }
 
 
-def _build_api_premium_section() -> dict:
+def _build_api_premium_section(scope_users: set[str] | None = None) -> dict:
     """Build model usage stats from API-synced data.
 
-    Tries premium_requests data first (billing-level).
-    Falls back to totals_by_model_feature from usage data (activity-level).
+    When scope_users is provided, falls back to per-user usage_users data
+    (billing-level premium_requests has no per-user breakdown).
+    Otherwise tries premium_requests first, then totals_by_model_feature.
     """
     all_scope_names = _get_all_scope_names()
+
+    # When group scope is active, build from per-user usage_users model data
+    if scope_users is not None:
+        activity_model_map: dict[str, dict] = defaultdict(lambda: {
+            "interactions": 0, "code_gen": 0, "code_accept": 0,
+        })
+        for scope in all_scope_names:
+            uu = data_collector.load_latest("usage_users", scope)
+            if not uu:
+                continue
+            records = uu if isinstance(uu, list) else uu.get("records", [uu])
+            for rec in records:
+                if (rec.get("user_login", "") or "").lower() not in scope_users:
+                    continue
+                for mf in rec.get("totals_by_model_feature", []):
+                    m = mf.get("model", "unknown")
+                    activity_model_map[m]["interactions"] += mf.get("user_initiated_interaction_count", 0)
+                    activity_model_map[m]["code_gen"] += mf.get("code_generation_activity_count", 0)
+                    activity_model_map[m]["code_accept"] += mf.get("code_acceptance_activity_count", 0)
+        if not activity_model_map:
+            return {"has_data": False, "models": [], "total_requests": 0, "net_requests": 0, "total_cost": 0.0, "scope_filtered": True}
+        total_interactions = sum(v["interactions"] for v in activity_model_map.values())
+        total_code_gen = sum(v["code_gen"] for v in activity_model_map.values())
+        activity_models = sorted(
+            [{"model": k, "gross_qty": v["interactions"] + v["code_gen"],
+              "net_qty": v["code_accept"], "gross_amount": 0.0, "net_amount": 0.0,
+              "interactions": v["interactions"], "code_gen": v["code_gen"], "code_accept": v["code_accept"]}
+             for k, v in activity_model_map.items()],
+            key=lambda x: -x["gross_qty"],
+        )
+        return {
+            "has_data": True,
+            "source": "activity",
+            "scope_filtered": True,
+            "models": activity_models,
+            "total_requests": total_interactions + total_code_gen,
+            "net_requests": total_interactions,
+            "total_cost": 0.0,
+        }
 
     # --- Try billing-level premium_requests data first ---
     model_map: dict[str, dict] = defaultdict(lambda: {
@@ -857,7 +897,7 @@ async def get_csv_dashboard(
         "premium_csv": premium,
         "usage_report": usage,
         "api_usage": _build_api_usage_section(scope_users=scope_users),
-        "api_premium": _build_api_premium_section(),
+        "api_premium": _build_api_premium_section(scope_users=scope_users),
         "filters": {
             "orgs": sorted(all_orgs),
             "cost_centers": sorted(all_ccs),
