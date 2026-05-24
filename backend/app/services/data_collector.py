@@ -453,7 +453,9 @@ class DataCollector:
         org_logins = self._api_manager.get_all_org_logins()
         enterprises = self._api_manager.get_all_enterprises() if hasattr(self._api_manager, "get_all_enterprises") else []
         if log_fn:
-            log_fn("info", f"Starting sync for {len(org_logins)} org(s) and {len(enterprises)} enterprise(s): {', '.join(org_logins) or '(none)'}")
+            org_part = f": {', '.join(org_logins)}" if org_logins else ""
+            ent_part = f" [enterprises: {', '.join(e['slug'] for e in enterprises)}]" if enterprises else ""
+            log_fn("info", f"Starting sync for {len(org_logins)} org(s) and {len(enterprises)} enterprise(s){ent_part}{org_part}")
 
         results = []
         for org_name in org_logins:

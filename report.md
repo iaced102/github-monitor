@@ -8,6 +8,210 @@
 
 ---
 
+## 🆕 ROUND 3 TEST — 2026-05-24 (phucvh / abc@123Sd)
+
+**Tester:** GitHub Copilot (Playwright MCP)  
+**User:** phucvh (super_admin role)  
+**Credentials:** phucvh / abc@123Sd  
+**Screenshots:** `e2e-screenshots/phucvh-test-2026-05-24/`  
+**Scope:** Full luồng E2E — Login, Dashboard (7 tabs), Chat, User Groups, Settings, Language (VI/EN/ZH), Theme, Scope Filter, Sync, Lifecycle Scan, Logout
+
+### Tóm tắt Round 3
+
+| Loại | Số lượng |
+|------|----------|
+| 🐛 Bug mới (chưa từng report) | 4 |
+| 🔄 Bug cũ quay lại (regression) | 2 |
+| ✅ Tính năng hoạt động đúng | 22 |
+| ⚠️ UX Concern | 3 |
+
+---
+
+### ✅ Tính năng hoạt động đúng (Round 3)
+
+| # | Tính năng | Screenshot | Ghi chú |
+|---|-----------|------------|---------|
+| 1 | Login với phucvh/abc@123Sd | 01-login-dashboard.png | ✅ Redirect sang dashboard ngay |
+| 2 | Logout → redirect về login | 28-logout.png | ✅ Dark mode preserved |
+| 3 | Dashboard - Tab Usage Metrics | 01-login-dashboard.png | ✅ KPI cards, charts hiển thị |
+| 4 | Dashboard - Tab Premium Requests | 03-premium-requests-tab.png | ✅ Chart + KPI render |
+| 5 | Dashboard - Tab Usage Report | 04-usage-report-tab.png | ✅ User table render |
+| 6 | Dashboard - Tab Cost Centers | 05-cost-centers-tab.png | ✅ Seat overview table |
+| 7 | Dashboard - Tab Monitor | 06-monitor-tab.png | ✅ Pie chart + KPIs |
+| 8 | Dashboard - Tab ROI | 07-roi-tab.png | ✅ Charts render |
+| 9 | Dashboard - Tab Nhóm người dùng | 08-user-groups-tab.png | ✅ Groups list render |
+| 10 | Members modal mở | 09-members-modal.png | ✅ Team Alpha members visible |
+| 11 | Escape key đóng Members modal | 10-escape-modal-close.png | ✅ |
+| 12 | Escape key đóng Reset Password modal | 13-reset-password-modal.png | ✅ |
+| 13 | Escape key đóng Settings modal | 17-settings-modal.png | ✅ |
+| 14 | Create Group form inline | 11b-create-group-filled.png | ✅ Lưu/Hủy hoạt động |
+| 15 | Managers tab - Reset Password modal | 13-reset-password-modal.png | ✅ CONFUSE-12 verified fixed |
+| 16 | Chat page UI | 14-chat-page.png | ✅ Quick actions, input, suggestions |
+| 17 | Chat session auto-rename | 16-chat-response-waiting.png | ✅ CONFUSE-07 fixed |
+| 18 | Settings modal - PAT management | 17-settings-modal.png | ✅ |
+| 19 | Language EN switch | 18-language-dropdown.png | ✅ Tất cả labels dịch đúng |
+| 20 | Language ZH switch + BUG-06 fix | 19-language-zh.png | ✅ "使用指标" hiển thị đúng |
+| 21 | Dark/Light mode toggle | 20-dark-mode.png / 21-back-to-dark-mode.png | ✅ |
+| 22 | Scope filter badge "ĐANG LỌC" | 22-group-scope-filter.png | ✅ CONFUSE-01 fixed |
+| 23 | Sync Data thủ công | 25-sync-data.png | ✅ Separator "── Sync X:XX PM ──" hiển thị |
+| 24 | Periodic Report panel | 26-periodic-report.png | ✅ HTML/CSV/Excel options |
+| 25 | Lifecycle Scan | 27-lifecycle-scan.png | ✅ 7 inactive, $273/mo waste |
+| 26 | No browser console JS errors | - | ✅ 0 errors |
+
+---
+
+### 🐛 BUG MỚI (Round 3 — chưa từng report)
+
+#### NEW-BUG-01: Chat trả về lỗi 402 "You have no quota"
+**Mức độ:** High  
+**Screenshot:** 16-chat-response-waiting.png  
+**Mô tả:** Khi gửi tin nhắn "Tổng quan sử dụng Copilot hiện tại?", AI trả về lỗi:
+```
+[Error: 402 You have no quota (Request ID: 83C6:2EDA9D:131F7D:17249D:6A133CE8)]
+```
+**Phân tích:** Lỗi 402 cho thấy Copilot API quota của token đã hết. Có thể do:
+1. Token của user phucvh đã vượt quá premium request quota (300 requests/month cho Business tier)
+2. Token trong Settings chưa được configure đúng  
+**Tác động:** User không thể dùng tính năng AI chat - tính năng core của ứng dụng.  
+**Fix đề xuất:** Hiển thị error message thân thiện hơn (thay vì raw API error), hướng dẫn user kiểm tra quota hoặc liên hệ admin.
+
+---
+
+#### NEW-BUG-02: "All Users" sub-tab trong User Groups không được dịch (cả VI và ZH)
+**Mức độ:** Low  
+**Screenshot:** 08-user-groups-tab.png (VI), 19-language-zh.png (ZH)  
+**Mô tả:** Sub-tab "All Users" trong User Groups page không được dịch sang:
+- Tiếng Việt (VI): vẫn hiện "All Users" thay vì "Tất cả người dùng"  
+- Tiếng Trung (ZH): vẫn hiện "All Users" thay vì "所有用户"  
+Các sub-tab khác đã được dịch ("Nhóm/分组", "Quản lý/管理员", "Nhập CSV/导入 CSV")  
+**Root Cause:** Translation key cho "All Users" trong user groups sub-tab có thể bị thiếu trong I18nContext.tsx  
+**Fix đề xuất:** Thêm translation key cho sub-tab này.
+
+---
+
+#### NEW-BUG-03: "LIFECYCLE SCAN" section heading không được dịch (VI và ZH)
+**Mức độ:** Low  
+**Screenshot:** 19-language-zh.png  
+**Mô tả:** Section heading "LIFECYCLE SCAN" trong sidebar không được dịch sang:
+- Tiếng Việt (VI): vẫn hiện "LIFECYCLE SCAN"  
+- Tiếng Trung (ZH): vẫn hiện "LIFECYCLE SCAN"  
+**Fix đề xuất:** Thêm translation key, ví dụ: VI = "🔄 QUÉT VÒNG ĐỜI", ZH = "🔄 生命周期扫描"
+
+---
+
+#### NEW-BUG-04: ROI tab labels hoàn toàn bằng tiếng Anh khi language là VI
+**Mức độ:** Medium  
+**Screenshot:** 07-roi-tab.png  
+**Mô tả:** Khi language đang là VI, ROI tab hiển thị tất cả labels bằng tiếng Anh:
+- "ACCEPTANCE RATE", "LOC ACCEPTANCE", "ACTIVE USERS", "COST / ACTIVE USER"
+- "ACCEPTANCE RATE TREND", "Daily Activity", "Active Users / Day"  
+Không có label nào được dịch sang tiếng Việt.  
+**Root Cause:** Translation keys cho ROI tab có thể bị thiếu hoặc chưa áp dụng vào component.  
+**Fix đề xuất:** Thêm i18n cho tất cả labels trong ROI tab component.
+
+---
+
+### 🔄 BUG CŨ QUAY LẠI (Regression — Round 3)
+
+#### REGRESSION-01: Member `@@phucvh01` hiển thị double @@ trong Members modal
+**Mức độ:** Medium  
+**Screenshot:** 09-members-modal.png  
+**Mô tả:** Trong Team Alpha Members modal, user `@@phucvh01` hiển thị với double `@@` sign.  
+**Kỳ vọng:** Phải là `@phucvh01`.  
+**Root Cause:** Có thể do logic lưu member username thêm `@` prefix vào một value đã có `@`, hoặc khi display đã thêm `@` nhưng data đã có `@`.  
+**Fix đề xuất:** Normalize username khi lưu (strip leading `@`) hoặc khi display (strip `@` trước khi thêm prefix).
+
+---
+
+#### REGRESSION-02: BUG-01 KPI với Group Scope — Usage Metrics tab hiển thị "Không có dữ liệu" thay vì KPI cards
+**Mức độ:** High  
+**Screenshot:** 22-group-scope-filter.png, 23-scope-kpi-check.png  
+**Mô tả:** Khi chọn scope "Team Alpha (3)":
+1. Tab "Chỉ số sử dụng" (Usage Metrics) hiển thị "Không có dữ liệu. Vui lòng đồng bộ dữ liệu trước." thay vì KPI cards
+2. Date pickers trở về "mm/dd/yyyy" (empty)
+3. Không có chart, không có seat list  
+**Kỳ vọng:** Hiển thị KPI filtered theo scope, hoặc KPI tổng org nếu group không khớp.  
+**So sánh với Round 2:** Round 2 report nói "KPI shows 0 with Team Alpha filter (expected)" nhưng Round 3 cho thấy blank page hoàn toàn.  
+**Phân tích:** Có thể fix cho BUG-01 đã làm thay đổi behavior: thay vì show 0 KPIs nó giờ show "no data" state. Message cũng misleading ("Vui lòng đồng bộ dữ liệu trước" thay vì "Không có dữ liệu cho nhóm này").
+
+---
+
+### ⚠️ UX CONCERN (Round 3)
+
+#### UX-01: BUG-03 Active user count inconsistency vẫn còn
+**Mức độ:** Medium  
+**Mô tả:** Vẫn còn sự không nhất quán giữa các tab:
+| Tab | Active Users | Nguồn |
+|-----|-------------|-------|
+| Sidebar | 39 | Seats (last activity) |
+| Cost Centers | 28 | Usage report users |
+| Monitor | 27 | Premium request metrics |
+| ROI | 28 | Usage report |
+
+Không có tooltip giải thích sự khác biệt giữa các nguồn dữ liệu.
+
+---
+
+#### UX-02: Console drawer visible by default sau login
+**Mức độ:** Low  
+**Screenshot:** 01-login-dashboard.png  
+**Mô tả:** NHẬT KÝ (Console) drawer hiển thị ngay khi login, chiếm ~30% màn hình. User mới sẽ bị confused bởi area trống với "Chưa có nhật ký." Sau đó khi sync chạy, nó được populate với technical logs.  
+**Fix đề xuất:** Console nên collapsed by default, chỉ expand khi user click.
+
+---
+
+#### UX-03: Chat lỗi 402 hiển thị raw API error thay vì friendly message
+**Mức độ:** Medium  
+**Screenshot:** 16-chat-response-waiting.png  
+**Mô tả:** Error message raw:  
+```
+[Error: 402 You have no quota (Request ID: 83C6:2EDA9D:131F7D:17249D:6A133CE8)]
+```  
+Thay vì message thân thiện như "Bạn đã hết quota AI. Vui lòng liên hệ admin hoặc kiểm tra PAT."
+
+---
+
+### 📊 So sánh với Round 2 (Regression Check)
+
+| Bug Round 2 | Status Round 3 |
+|-------------|----------------|
+| BUG-01: KPI filter scope | ⚠️ REGRESSION — blank page thay vì 0 KPIs |
+| BUG-02: Duplicate users Cost Centers | ✅ Vẫn fixed |
+| BUG-04: Escape key modal | ✅ Vẫn fixed |
+| BUG-06: ZH nav.dashMetrics | ✅ Vẫn fixed ("使用指标") |
+| BUG-07: VI monitor.tab | ✅ Vẫn fixed ("Giám sát") |
+| BUG-08: VI console.title collision | ✅ Vẫn fixed ("Nhật ký") |
+| BUG-09: Console auto-open sync | ✅ Chưa re-trigger (cron sync đã chạy, console không tự mở — nhưng console luôn visible) |
+| CONFUSE-01: Scope filter badge | ✅ Vẫn fixed ("ĐANG LỌC" badge) |
+| CONFUSE-07: Session auto-rename | ✅ Vẫn fixed (session được đặt tên từ first message) |
+| CONFUSE-12: Reset Password button | ✅ Vẫn fixed |
+
+---
+
+### 📋 Danh sách Fix ưu tiên (Round 3)
+
+#### P1 — Cần sửa ngay
+1. **NEW-BUG-01:** Chat 402 error — thêm friendly error message + hướng dẫn quota
+2. **REGRESSION-02:** BUG-01 KPI scope regression — khi group scope không match, hiển thị message rõ ràng + không clear date pickers
+3. **REGRESSION-01:** Double `@@` trong member username — normalize khi lưu/display
+
+#### P2 — Nên sửa
+4. **NEW-BUG-04:** ROI tab không có i18n VI — thêm translation keys
+5. **NEW-BUG-02:** "All Users" sub-tab không dịch VI/ZH — thêm translation key
+6. **UX-03:** Chat error message raw → friendly message
+
+#### P3 — Nice to have
+7. **NEW-BUG-03:** "LIFECYCLE SCAN" chưa dịch VI/ZH — thêm translation
+8. **UX-01:** Active user count inconsistency — thêm tooltip giải thích nguồn
+9. **UX-02:** Console visible by default — collapse by default
+
+---
+
+*Round 3 test completed: 2026-05-24 by Playwright MCP E2E Testing (user: phucvh)*  
+*Screenshots: e2e-screenshots/phucvh-test-2026-05-24/ (30 screenshots)*
+
+---
+
 ## Tóm tắt / Summary
 
 | Loại | Số lượng |

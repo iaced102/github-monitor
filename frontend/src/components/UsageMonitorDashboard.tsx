@@ -7,6 +7,8 @@ import { useI18n } from "../contexts/I18nContext";
 import { useUIState } from "../contexts/UIStateContext";
 import { useUsageMonitor } from "../hooks/useData";
 import { InfoIcon, ChartTitle } from "./InfoIcon";
+import { UserDetailModal } from "./UserDetailModal";
+import { exportCSV } from "../utils/export";
 
 const COLORS = ["#58a6ff", "#3fb950", "#d29922", "#f85149", "#bc8cff", "#f778ba", "#79c0ff", "#56d364", "#e3b341", "#ff7b72"];
 const TOOLTIP_STYLE = { background: "var(--bg-secondary)", border: "1px solid var(--border)", borderRadius: 8, fontSize: 12 };
@@ -54,6 +56,7 @@ export function UsageMonitorDashboard({ refreshKey: _refreshKey, selectedOrgs }:
   const [userSearch, setUserSearch] = useState("");
   const [userSort, setUserSort] = useState<"total" | string>("total");
   const [userSortDir, setUserSortDir] = useState<"desc" | "asc">("desc");
+  const [drilldownUser, setDrilldownUser] = useState<string | null>(null);
 
   if (loading) {
     return <div className="dashboard-loading"><div className="loading-spinner" /><span>{t("loading")}</span></div>;
@@ -102,8 +105,14 @@ export function UsageMonitorDashboard({ refreshKey: _refreshKey, selectedOrgs }:
 
   return (
     <div className="csv-dashboard">
-
-      {/* ── KPI Cards ─────────────────────────────────────────────────────── */}
+      {drilldownUser && (
+        <UserDetailModal
+          username={drilldownUser}
+          orgs={selectedOrgs}
+          groupId={ui.selectedGroupId}
+          onClose={() => setDrilldownUser(null)}
+        />
+      )}
       <div className="dash-section">
         <div className="dash-section-body" style={{ paddingTop: 0 }}>
           <div className="dashboard-kpi">
@@ -315,7 +324,7 @@ export function UsageMonitorDashboard({ refreshKey: _refreshKey, selectedOrgs }:
 
       {/* ── Per-user Model Usage ──────────────────────────────────────────── */}
       <Section sectionKey="userModel" title={t("monitor.sectionUserModel")} infoKey="mon_userModel">
-        <div className="dash-section-body" style={{ padding: "0 0 12px" }}>
+        <div className="dash-section-body" style={{ padding: "0 0 12px", display: "flex", alignItems: "center", gap: 8 }}>
           <input
             type="text"
             placeholder={t("monitor.searchUser")}
@@ -324,9 +333,11 @@ export function UsageMonitorDashboard({ refreshKey: _refreshKey, selectedOrgs }:
             style={{
               background: "var(--bg-tertiary)", border: "1px solid var(--border)",
               borderRadius: 6, color: "var(--text-primary)", padding: "5px 10px",
-              fontSize: 13, width: 240, marginBottom: 10,
+              fontSize: 13, width: 240,
             }}
           />
+          <button className="btn btn-small" style={{ marginLeft: "auto" }}
+            onClick={() => exportCSV("monitor-users", filteredUsers)}>⬇ CSV</button>
         </div>
         <div className="dashboard-charts">
           <div className="chart-card chart-card-wide">
@@ -353,8 +364,9 @@ export function UsageMonitorDashboard({ refreshKey: _refreshKey, selectedOrgs }:
                   </thead>
                   <tbody>
                     {filteredUsers.map((u: any, ri: number) => (
-                      <tr key={u.user} style={{ background: ri % 2 === 0 ? "var(--bg-secondary)" : "var(--bg-tertiary)" }}>
-                        <td style={{ fontWeight: 500 }}>{u.user}</td>
+                      <tr key={u.user} className="clickable-row" style={{ background: ri % 2 === 0 ? "var(--bg-secondary)" : "var(--bg-tertiary)" }}
+                        onClick={() => setDrilldownUser(u.user)}>
+                        <td style={{ fontWeight: 500 }}><span className="user-link">{u.user}</span></td>
                         <td style={{ fontWeight: 600, color: "var(--accent)" }}>{(u.total ?? 0).toLocaleString()}</td>
                         {all_models.map((m: string) => {
                           const v = u[m] ?? 0;

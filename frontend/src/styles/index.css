@@ -1848,6 +1848,7 @@ body {
   border: 1px solid var(--border);
   border-radius: var(--radius);
   overflow: hidden;
+  flex-shrink: 0;
 }
 
 .view-toggle .btn {
@@ -1876,7 +1877,10 @@ body {
 .dashboard-tab-bar {
   display: flex;
   justify-content: center;
-  padding: 10px 24px 0;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  padding: 8px 24px 0;
   background: var(--bg-primary);
   border-bottom: 1px solid var(--border);
   flex-shrink: 0;
@@ -3023,6 +3027,51 @@ body {
   display: flex;
   gap: 8px;
 }
+.member-autocomplete-dropdown {
+  position: absolute;
+  top: calc(100% + 2px);
+  left: 0;
+  right: 44px;
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-color);
+  border-radius: 6px;
+  box-shadow: 0 4px 16px rgba(0,0,0,0.18);
+  z-index: 1000;
+  max-height: 240px;
+  overflow-y: auto;
+}
+.member-autocomplete-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 10px;
+  cursor: pointer;
+  font-size: 13px;
+  color: var(--text-primary);
+  transition: background 0.1s;
+}
+.member-autocomplete-item:hover,
+.member-autocomplete-item.highlighted {
+  background: var(--accent-color, #0969da);
+  color: #fff;
+}
+.member-autocomplete-avatar {
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  overflow: hidden;
+  flex-shrink: 0;
+  background: var(--border-color);
+}
+.member-autocomplete-avatar img {
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  display: block;
+}
+.member-autocomplete-login {
+  font-weight: 500;
+}
 .groups-member-list {
   display: flex;
   flex-direction: column;
@@ -3121,6 +3170,83 @@ body {
   color: var(--text-secondary);
 }
 
+/* ── Import preview ── */
+.import-preview-section {
+  margin-top: 16px;
+}
+.import-preview-summary {
+  display: flex;
+  gap: 12px;
+  align-items: center;
+  margin-bottom: 10px;
+  font-size: 13px;
+}
+.import-count-valid { color: #2da44e; font-weight: 600; }
+.import-count-invalid { color: #cf6c26; font-weight: 600; }
+.import-count-total { color: var(--text-secondary); }
+.import-preview-table-wrap {
+  overflow-x: auto;
+  border: 1px solid var(--border-color);
+  border-radius: 8px;
+  max-height: 360px;
+  overflow-y: auto;
+}
+.import-preview-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+}
+.import-preview-table th {
+  padding: 6px 10px;
+  background: var(--bg-tertiary);
+  border-bottom: 1px solid var(--border-color);
+  text-align: left;
+  font-weight: 600;
+  position: sticky;
+  top: 0;
+  z-index: 1;
+}
+.import-preview-table td {
+  padding: 5px 10px;
+  border-bottom: 1px solid var(--border-color);
+  vertical-align: middle;
+}
+.import-row-valid td { background: rgba(45,164,78,0.04); }
+.import-row-invalid td { background: rgba(207,108,38,0.06); }
+.import-row-num { color: var(--text-secondary); width: 36px; }
+.import-row-user { min-width: 180px; }
+.import-row-group { color: var(--text-secondary); }
+.import-row-status { white-space: nowrap; }
+.import-username-valid {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-weight: 500;
+}
+.import-user-avatar {
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+.import-ac-input {
+  width: 100%;
+  min-width: 160px;
+}
+.import-badge-valid { color: #2da44e; font-size: 12px; }
+.import-badge-invalid { color: #cf6c26; font-size: 12px; }
+.import-preview-actions {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-top: 12px;
+  flex-wrap: wrap;
+}
+.import-warn-text {
+  font-size: 12px;
+  color: #cf6c26;
+}
+
 /* btn-tiny */
 .btn-tiny {
   padding: 2px 8px;
@@ -3134,3 +3260,164 @@ body {
 .btn-tiny:hover {
   background: var(--bg-primary);
 }
+
+/* ─────────────────────────────────────────────
+   KPI Delta Badges (WoW trend)
+───────────────────────────────────────────── */
+.kpi-delta {
+  display: inline-block;
+  font-size: 10px;
+  font-weight: 700;
+  padding: 1px 5px;
+  border-radius: 8px;
+  margin-left: 4px;
+  vertical-align: middle;
+}
+.kpi-delta-up { color: #3fb950; background: rgba(63,185,80,0.12); }
+.kpi-delta-down { color: #f85149; background: rgba(248,81,73,0.12); }
+.stat-card-trend { border-top: 2px solid var(--accent); }
+
+/* ─────────────────────────────────────────────
+   Clickable table rows
+───────────────────────────────────────────── */
+.clickable-row { cursor: pointer; transition: background 0.12s; }
+.clickable-row:hover { background: var(--accent-alpha, rgba(88,166,255,0.08)) !important; }
+.user-link { color: var(--accent); text-decoration: underline dotted; }
+
+/* ─────────────────────────────────────────────
+   User Detail Modal
+───────────────────────────────────────────── */
+.user-detail-modal {
+  width: min(860px, 95vw);
+  max-height: 88vh;
+  overflow-y: auto;
+}
+.user-detail-body { padding: 0 16px 16px; }
+.user-detail-kpi {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  padding: 12px 0 16px;
+  border-bottom: 1px solid var(--border);
+  margin-bottom: 16px;
+}
+.user-detail-kpi-item {
+  display: flex;
+  flex-direction: column;
+  min-width: 100px;
+}
+.user-detail-kpi-item .kpi-label {
+  font-size: 11px;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+.user-detail-kpi-item .kpi-value {
+  font-size: 22px;
+  font-weight: 700;
+  color: var(--text-primary);
+}
+.user-detail-kpi-item .kpi-value.accent { color: var(--accent); }
+.user-detail-section { margin-bottom: 16px; }
+.user-detail-section-title {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-secondary);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  margin: 0 0 8px;
+}
+.user-detail-row { display: flex; gap: 16px; flex-wrap: wrap; }
+.user-detail-half { flex: 1; min-width: 280px; }
+.user-detail-table-wrap { overflow-x: auto; max-height: 200px; overflow-y: auto; }
+
+/* ─────────────────────────────────────────────
+   ROI Dashboard KPI Row
+───────────────────────────────────────────── */
+.dash-kpi-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  padding: 16px;
+}
+.dash-kpi-card {
+  background: var(--bg-secondary);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 14px 18px;
+  min-width: 160px;
+  flex: 1;
+}
+.dash-kpi-label {
+  font-size: 11px;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  margin-bottom: 4px;
+}
+.dash-kpi-value {
+  font-size: 26px;
+  font-weight: 700;
+  color: var(--text-primary);
+}
+.dash-kpi-value.dash-kpi-accent { color: var(--accent); }
+.dash-kpi-sub {
+  font-size: 11px;
+  color: var(--text-muted);
+  margin-top: 2px;
+}
+.chart-title {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-secondary);
+  margin-bottom: 8px;
+}
+
+/* ─────────────────────────────────────────────
+   Lifecycle Panel
+───────────────────────────────────────────── */
+.lifecycle-panel { padding: 8px 4px; }
+.lifecycle-controls {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 8px;
+  flex-wrap: wrap;
+}
+.lifecycle-label { font-size: 12px; color: var(--text-secondary); display: flex; align-items: center; gap: 6px; }
+.lifecycle-select {
+  background: var(--bg-tertiary);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  color: var(--text-primary);
+  font-size: 12px;
+  padding: 3px 6px;
+}
+.lifecycle-summary {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 8px;
+  flex-wrap: wrap;
+}
+.lifecycle-badge {
+  font-size: 11px;
+  font-weight: 600;
+  padding: 2px 8px;
+  border-radius: 10px;
+  background: var(--bg-tertiary);
+  border: 1px solid var(--border);
+  color: var(--text-secondary);
+}
+.lifecycle-badge.danger { color: #f85149; border-color: rgba(248,81,73,0.3); background: rgba(248,81,73,0.1); }
+.lifecycle-actions { display: flex; gap: 6px; margin-bottom: 6px; flex-wrap: wrap; }
+.lifecycle-done {
+  font-size: 12px;
+  color: #3fb950;
+  margin-bottom: 6px;
+  padding: 4px 8px;
+  background: rgba(63,185,80,0.1);
+  border-radius: 6px;
+}
+.lifecycle-table-wrap { overflow-x: auto; max-height: 320px; overflow-y: auto; }
+.lifecycle-row-selected { background: rgba(88,166,255,0.1) !important; }

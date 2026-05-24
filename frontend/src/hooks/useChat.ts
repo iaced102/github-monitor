@@ -1,12 +1,18 @@
 import { useState, useCallback, useRef } from "react";
 import type { ChatMessage, SSEEvent, ToolCallInfo, ConsoleEntry } from "../types";
+import { useI18n } from "../contexts/I18nContext";
 
 let entrySeq = 0;
 function nextId() {
   return `ce_${Date.now()}_${++entrySeq}`;
 }
 
+function isQuotaError(msg: string): boolean {
+  return msg.includes("402") || msg.toLowerCase().includes("quota") || msg.toLowerCase().includes("no quota");
+}
+
 export function useChat() {
+  const { t } = useI18n();
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [activeTools, setActiveTools] = useState<ToolCallInfo[]>([]);
@@ -182,7 +188,10 @@ export function useChat() {
                   { id: nextId(), timestamp: Date.now(), type: "usage" as const, title: `Model: ${event.content}`, detail: event.detail || undefined },
                 ]);
               } else if (event.type === "error") {
-                fullContent += `\n\n[Error: ${event.content}]`;
+                const friendlyMsg = isQuotaError(event.content)
+                  ? t("chat.errorQuota")
+                  : `[Error: ${event.content}]`;
+                fullContent += `\n\n${friendlyMsg}`;
                 setMessages((prev) => {
                   const updated = [...prev];
                   const last = updated[updated.length - 1];
@@ -208,7 +217,7 @@ export function useChat() {
           const updated = [...prev];
           const last = updated[updated.length - 1];
           if (last.role === "assistant") {
-            last.content = `Error: ${err.message}`;
+            last.content = t("chat.errorConnection");
           }
           return updated;
         });

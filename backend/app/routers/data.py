@@ -152,7 +152,7 @@ async def get_overview():
 
         orgs_with_copilot += 1
         if billing:
-            price = billing.get("_detected_price_per_seat", 19.0)
+            price = billing.get("_detected_price_per_seat", 39.0)
             sb = billing.get("seat_breakdown", {})
             seats = sb.get("total", 0)
             active = sb.get("active_this_cycle", 0)
@@ -2034,3 +2034,534 @@ async def get_usage_monitor(
         "all_models": all_models,
         "user_model": user_model_list,
     }
+
+
+def _get_selected_scope_names(orgs: str) -> list[str]:
+    """Resolve selected org/enterprise names from a comma-separated query param."""
+    all_scope_names = _get_all_scope_names()
+    if not orgs.strip():
+        return all_scope_names
+    return list(dict.fromkeys(o.strip() for o in orgs.split(",") if o.strip())) or all_scope_names
+
+
+def _get_usage_user_records(org: str) -> list[dict]:
+    """Return normalized usage_users records for an org."""
+    uu = data_collector.load_latest("usage_users", org)
+    if not uu:
+        return []
+    if isinstance(uu, list):
+        return [rec for rec in uu if isinstance(rec, dict)]
+    records = uu.get("records", []) if isinstance(uu, dict) else []
+    return [rec for rec in records if isinstance(rec, dict)]
+
+
+def _get_usage_records(org: str) -> list[dict]:
+    """Return normalized usage records for an org."""
+    usage = data_collector.load_latest("usage", org)
+    if not usage:
+        return []
+    if isinstance(usage, list):
+        return [rec for rec in usage if isinstance(rec, dict)]
+    records = usage.get("records", [usage]) if isinstance(usage, dict) else []
+    return [rec for rec in records if isinstance(rec, dict)]
+
+
+def _loc_suggested_sum(item: dict) -> int:
+    return int(item.get("loc_suggested_to_add_sum", 0) or 0) + int(item.get("loc_suggested_to_delete_sum", 0) or 0)
+
+
+def _loc_accepted_sum(item: dict) -> int:
+    return int(item.get("loc_added_sum", 0) or 0) + int(item.get("loc_deleted_sum", 0) or 0)
+
+
+def _parse_utc_datetime(value: str | None) -> datetime | None:
+    if not value:
+        return None
+    try:
+        return datetime.fromisoformat(value.replace("Z", "+00:00"))
+    except (ValueError, TypeError, AttributeError):
+        return None
+
+
+@router.get("/data/user-timeline")
+async def get_user_timeline(
+    request: Request,
+    username: str = Query(default="", description="GitHub username"),
+    orgs: str = Query(default="", description="Comma-separated org/enterprise slugs; empty = all"),
+    group_id: int = Query(default=0),
+):
+    """Return per-day user activity drilldown across selected orgs."""
+    empty_response = {
+        "username": username,
+        "has_data": False,
+        "kpi": {
+            "total_interactions": 0,
+            "total_code_gen": 0,
+            "total_code_accept": 0,
+            "acceptance_rate": 0.0,
+            "active_days": 0,
+        },
+        "timeline": [],
+        "features": [],
+        "models": [],
+        "ides": [],
+    }
+    try:
+        username_lower = username.strip().lower()
+        if not username_lower:
+            return {**empty_response, "error": "Username is required"}
+
+        scope_users = _get_scope_usernames(request, group_id or None)
+        if scope_users is not None and username_lower not in scope_users:
+            return {**empty_response, "error": "User not in scope"}
+
+        days: dict[str, dict] = {}
+        features: dict[str, dict] = defaultdict(lambda: {"interactions": 0, "code_gen": 0, "code_accept": 0})
+        models: dict[str, dict] = defaultdict(lambda: {"interactions": 0, "code_gen": 0})
+        ides: dict[str, dict] = defaultdict(lambda: {"interactions": 0, "code_gen": 0})
+        total_interactions = 0
+        total_code_gen = 0
+        total_code_accept = 0
+        found = False
+
+        for org_name in _get_selected_scope_names(orgs):
+            for rec in _get_usage_user_records(org_name):
+                login = (rec.get("user_login", "") or "").lower()
+                if login != username_lower:
+                    continue
+                found = True
+                day = rec.get("day", "")
+                if day:
+                    if day not in days:
+                        days[day] = {
+                            "day": day,
+                            "interactions": 0,
+                            "code_gen": 0,
+                            "code_accept": 0,
+                            "loc_suggested": 0,
+                            "loc_accepted": 0,
+                        }
+                    days[day]["interactions"] += int(rec.get("user_initiated_interaction_count", 0) or 0)
+                    days[day]["code_gen"] += int(rec.get("code_generation_activity_count", 0) or 0)
+                    days[day]["code_accept"] += int(rec.get("code_acceptance_activity_count", 0) or 0)
+                    days[day]["loc_suggested"] += _loc_suggested_sum(rec)
+                    days[day]["loc_accepted"] += _loc_accepted_sum(rec)
+
+                total_interactions += int(rec.get("user_initiated_interaction_count", 0) or 0)
+                total_code_gen += int(rec.get("code_generation_activity_count", 0) or 0)
+                total_code_accept += int(rec.get("code_acceptance_activity_count", 0) or 0)
+
+                for item in rec.get("totals_by_feature", []):
+                    feature = item.get("feature", "unknown")
+                    features[feature]["interactions"] += int(item.get("user_initiated_interaction_count", 0) or 0)
+                    features[feature]["code_gen"] += int(item.get("code_generation_activity_count", 0) or 0)
+                    features[feature]["code_accept"] += int(item.get("code_acceptance_activity_count", 0) or 0)
+
+                for item in rec.get("totals_by_model_feature", []):
+                    model = item.get("model", "unknown")
+                    models[model]["interactions"] += int(item.get("user_initiated_interaction_count", 0) or 0)
+                    models[model]["code_gen"] += int(item.get("code_generation_activity_count", 0) or 0)
+
+                for item in rec.get("totals_by_ide", []):
+                    ide = item.get("ide", "unknown")
+                    ides[ide]["interactions"] += int(item.get("user_initiated_interaction_count", 0) or 0)
+                    ides[ide]["code_gen"] += int(item.get("code_generation_activity_count", 0) or 0)
+
+        if not found:
+            return empty_response
+
+        acceptance_rate = round(total_code_accept / total_code_gen * 100, 1) if total_code_gen > 0 else 0.0
+        return {
+            "username": username,
+            "has_data": True,
+            "kpi": {
+                "total_interactions": total_interactions,
+                "total_code_gen": total_code_gen,
+                "total_code_accept": total_code_accept,
+                "acceptance_rate": acceptance_rate,
+                "active_days": len(days),
+            },
+            "timeline": [days[day] for day in sorted(days)],
+            "features": sorted(
+                [{"feature": feature, **values} for feature, values in features.items()],
+                key=lambda item: -(item["interactions"] + item["code_gen"]),
+            ),
+            "models": sorted(
+                [{"model": model, **values} for model, values in models.items()],
+                key=lambda item: -(item["interactions"] + item["code_gen"]),
+            ),
+            "ides": sorted(
+                [{"ide": ide, **values} for ide, values in ides.items()],
+                key=lambda item: -(item["interactions"] + item["code_gen"]),
+            ),
+        }
+    except Exception:
+        return empty_response
+
+
+@router.get("/data/roi")
+async def get_roi_dashboard(
+    request: Request,
+    orgs: str = Query(default="", description="Comma-separated org/enterprise slugs; empty = all"),
+    group_id: int = Query(default=0),
+):
+    """Return ROI and acceptance-rate dashboard metrics."""
+    empty_response = {
+        "kpi": {
+            "acceptance_rate": 0.0,
+            "cost_per_active_user": 0.0,
+            "active_users": 0,
+            "total_seats": 0,
+            "monthly_cost": 0.0,
+            "total_code_gen": 0,
+            "total_code_accept": 0,
+            "total_loc_suggested": 0,
+            "total_loc_accepted": 0,
+            "loc_acceptance_rate": 0.0,
+        },
+        "daily_trend": [],
+        "top_users_by_acceptance": [],
+    }
+    try:
+        scope_users = _get_scope_usernames(request, group_id or None)
+        selected = _get_selected_scope_names(orgs)
+
+        daily_agg: dict[str, dict] = {}
+        user_agg: dict[str, dict] = defaultdict(lambda: {
+            "interactions": 0,
+            "code_gen": 0,
+            "code_accept": 0,
+        })
+        total_code_gen = 0
+        total_code_accept = 0
+        total_loc_suggested = 0
+        total_loc_accepted = 0
+
+        for org_name in selected:
+            for rec in _get_usage_user_records(org_name):
+                login = (rec.get("user_login", "") or "").lower()
+                if not login or (scope_users is not None and login not in scope_users):
+                    continue
+
+                interactions = int(rec.get("user_initiated_interaction_count", 0) or 0)
+                code_gen = int(rec.get("code_generation_activity_count", 0) or 0)
+                code_accept = int(rec.get("code_acceptance_activity_count", 0) or 0)
+                loc_suggested = _loc_suggested_sum(rec)
+                loc_accepted = _loc_accepted_sum(rec)
+                day = rec.get("day", "")
+
+                total_code_gen += code_gen
+                total_code_accept += code_accept
+                total_loc_suggested += loc_suggested
+                total_loc_accepted += loc_accepted
+
+                user_agg[login]["interactions"] += interactions
+                user_agg[login]["code_gen"] += code_gen
+                user_agg[login]["code_accept"] += code_accept
+
+                if day:
+                    if day not in daily_agg:
+                        daily_agg[day] = {
+                            "day": day,
+                            "interactions": 0,
+                            "code_gen": 0,
+                            "code_accept": 0,
+                            "active_users": set(),
+                        }
+                    daily_agg[day]["interactions"] += interactions
+                    daily_agg[day]["code_gen"] += code_gen
+                    daily_agg[day]["code_accept"] += code_accept
+                    daily_agg[day]["active_users"].add(login)
+
+        total_seats = 0
+        monthly_cost = 0.0
+        for org_name in selected:
+            billing = data_collector.load_latest("billing", org_name)
+            seats_data = data_collector.load_latest("seats", org_name)
+            if not billing and not seats_data:
+                continue
+            price = float((billing or {}).get("_detected_price_per_seat", 39.0) or 39.0)
+            if scope_users is not None:
+                seat_count = 0
+                for seat in (seats_data or {}).get("seats", []):
+                    login = ((seat.get("assignee") or {}).get("login", "") or "").lower()
+                    if login and login in scope_users:
+                        seat_count += 1
+            elif billing and not billing.get("_billing_scope_error"):
+                seat_count = int((billing.get("seat_breakdown", {}) or {}).get("total", 0) or 0)
+            else:
+                seat_count = int((seats_data or {}).get("total_seats", len((seats_data or {}).get("seats", []))) or 0)
+            total_seats += seat_count
+            monthly_cost += seat_count * price
+
+        active_users = len(user_agg)
+        acceptance_rate = round(total_code_accept / total_code_gen * 100, 1) if total_code_gen > 0 else 0.0
+        # Cap LOC acceptance at 100%: loc_added/deleted can exceed loc_suggested due to
+        # how the metrics API counts edits vs. raw suggestion content.
+        loc_acceptance_rate = min(round(total_loc_accepted / total_loc_suggested * 100, 1), 100.0) if total_loc_suggested > 0 else 0.0
+        daily_trend = []
+        for day in sorted(daily_agg):
+            row = daily_agg[day]
+            daily_trend.append({
+                "day": day,
+                "code_gen": row["code_gen"],
+                "code_accept": row["code_accept"],
+                "acceptance_rate": round(row["code_accept"] / row["code_gen"] * 100, 1) if row["code_gen"] > 0 else 0.0,
+                "interactions": row["interactions"],
+                "active_users": len(row["active_users"]),
+            })
+
+        top_users = []
+        for user, values in user_agg.items():
+            code_gen = values["code_gen"]
+            if code_gen < 10:
+                continue
+            top_users.append({
+                "user": user,
+                "acceptance_rate": round(values["code_accept"] / code_gen * 100, 1) if code_gen > 0 else 0.0,
+                "code_gen": code_gen,
+                "code_accept": values["code_accept"],
+                "interactions": values["interactions"],
+            })
+        top_users.sort(key=lambda item: (-item["acceptance_rate"], -item["code_gen"], item["user"]))
+
+        return {
+            "kpi": {
+                "acceptance_rate": acceptance_rate,
+                "cost_per_active_user": round(monthly_cost / active_users, 2) if active_users > 0 else 0.0,
+                "active_users": active_users,
+                "total_seats": total_seats,
+                "monthly_cost": round(monthly_cost, 2),
+                "total_code_gen": total_code_gen,
+                "total_code_accept": total_code_accept,
+                "total_loc_suggested": total_loc_suggested,
+                "total_loc_accepted": total_loc_accepted,
+                "loc_acceptance_rate": loc_acceptance_rate,
+            },
+            "daily_trend": daily_trend,
+            "top_users_by_acceptance": top_users[:20],
+        }
+    except Exception:
+        return empty_response
+
+
+@router.get("/data/lifecycle-scan")
+async def get_lifecycle_scan(
+    request: Request,
+    threshold_days: int = Query(default=30, ge=0),
+    group_id: int = Query(default=0),
+):
+    """Return inactive-seat candidates across all synced organizations."""
+    empty_response = {
+        "threshold_days": threshold_days,
+        "inactive_count": 0,
+        "monthly_waste": 0.0,
+        "users": [],
+    }
+    try:
+        scope_users = _get_scope_usernames(request, group_id or None)
+        now = datetime.now(timezone.utc)
+        users = []
+        monthly_waste = 0.0
+
+        for org_name in _get_all_scope_names():
+            seats_data = data_collector.load_latest("seats", org_name)
+            if not seats_data:
+                continue
+            billing = data_collector.load_latest("billing", org_name)
+            monthly_cost = float((billing or {}).get("_detected_price_per_seat", 39.0) or 39.0)
+
+            for seat in seats_data.get("seats", []):
+                assignee = seat.get("assignee") or {}
+                login = (assignee.get("login", "") or "").lower()
+                if not login:
+                    continue
+                if scope_users is not None and login not in scope_users:
+                    continue
+
+                last_activity_at = seat.get("last_activity_at")
+                last_activity_dt = _parse_utc_datetime(last_activity_at)
+                if last_activity_dt is None:
+                    days_inactive = threshold_days
+                    include_user = True
+                else:
+                    days_inactive = max((now - last_activity_dt).days, 0)
+                    include_user = days_inactive >= threshold_days
+
+                if not include_user:
+                    continue
+
+                users.append({
+                    "user": assignee.get("login", ""),
+                    "org": org_name,
+                    "last_activity_at": last_activity_at,
+                    "days_inactive": days_inactive,
+                    "monthly_cost": round(monthly_cost, 2),
+                })
+                monthly_waste += monthly_cost
+
+        users.sort(key=lambda item: item["days_inactive"], reverse=True)
+        return {
+            "threshold_days": threshold_days,
+            "inactive_count": len(users),
+            "monthly_waste": round(monthly_waste, 2),
+            "users": users,
+        }
+    except Exception:
+        return empty_response
+
+
+@router.post("/data/lifecycle-recommend")
+async def create_lifecycle_recommendations(payload: dict):
+    """Create pending seat-removal recommendations for inactive users."""
+    try:
+        db = db_module.db
+        items = payload.get("users", []) if isinstance(payload, dict) else []
+        if db is None or not isinstance(items, list):
+            return {"created": 0}
+
+        created = 0
+        ts_base = int(datetime.now(timezone.utc).timestamp())
+        for index, item in enumerate(items):
+            if not isinstance(item, dict):
+                continue
+            user = str(item.get("user", "") or "").strip()
+            org = str(item.get("org", "") or "").strip()
+            if not user or not org:
+                continue
+            days_inactive = int(item.get("days_inactive", 0) or 0)
+            monthly_cost = float(item.get("monthly_cost", 0) or 0.0)
+            rec = {
+                "id": f"lifecycle-{user}-{ts_base + index}",
+                "timestamp": datetime.now(timezone.utc).isoformat(),
+                "org": org,
+                "type": "remove_seats",
+                "affected_users": [user],
+                "description": f"Inactive {days_inactive} days — remove to save ${monthly_cost:.2f}/mo",
+                "estimated_monthly_savings": monthly_cost,
+                "status": "pending",
+            }
+            db.save_recommendation(rec)
+            created += 1
+
+        return {"created": created}
+    except Exception:
+        return {"created": 0}
+
+
+@router.get("/data/kpi-trend")
+async def get_kpi_trend(
+    request: Request,
+    orgs: str = Query(default="", description="Comma-separated org/enterprise slugs; empty = all"),
+    group_id: int = Query(default=0),
+):
+    """Return week-over-week KPI deltas from the most recent daily usage data."""
+    empty_period = {
+        "avg_dau": 0.0,
+        "total_interactions": 0,
+        "total_code_gen": 0,
+        "acceptance_rate": 0.0,
+    }
+    empty_response = {
+        "has_data": False,
+        "period_days": 7,
+        "current": dict(empty_period),
+        "previous": dict(empty_period),
+        "deltas": {
+            "dau_pct": 0.0,
+            "interactions_pct": 0.0,
+            "code_gen_pct": 0.0,
+            "acceptance_rate_pt": 0.0,
+        },
+    }
+    try:
+        scope_users = _get_scope_usernames(request, group_id or None)
+        daily_map: dict[str, dict] = {}
+
+        if scope_users is not None:
+            for org_name in _get_selected_scope_names(orgs):
+                for rec in _get_usage_user_records(org_name):
+                    login = (rec.get("user_login", "") or "").lower()
+                    if not login or login not in scope_users:
+                        continue
+                    day = rec.get("day", "")
+                    if not day:
+                        continue
+                    if day not in daily_map:
+                        daily_map[day] = {
+                            "day": day,
+                            "interactions": 0,
+                            "code_gen": 0,
+                            "code_accept": 0,
+                            "active_users": set(),
+                        }
+                    daily_map[day]["interactions"] += int(rec.get("user_initiated_interaction_count", 0) or 0)
+                    daily_map[day]["code_gen"] += int(rec.get("code_generation_activity_count", 0) or 0)
+                    daily_map[day]["code_accept"] += int(rec.get("code_acceptance_activity_count", 0) or 0)
+                    daily_map[day]["active_users"].add(login)
+        else:
+            for org_name in _get_selected_scope_names(orgs):
+                for rec in _get_usage_records(org_name):
+                    for day_total in rec.get("day_totals", []):
+                        day = day_total.get("day", "")
+                        if not day:
+                            continue
+                        if day not in daily_map:
+                            daily_map[day] = {
+                                "day": day,
+                                "dau": 0,
+                                "interactions": 0,
+                                "code_gen": 0,
+                                "code_accept": 0,
+                            }
+                        daily_map[day]["dau"] += int(day_total.get("daily_active_users", 0) or 0)
+                        daily_map[day]["interactions"] += int(day_total.get("user_initiated_interaction_count", 0) or 0)
+                        daily_map[day]["code_gen"] += int(day_total.get("code_generation_activity_count", 0) or 0)
+                        daily_map[day]["code_accept"] += int(day_total.get("code_acceptance_activity_count", 0) or 0)
+
+        if not daily_map:
+            return empty_response
+
+        ordered_days = [daily_map[day] for day in sorted(daily_map)][-14:]
+        previous_days = ordered_days[:-7]
+        current_days = ordered_days[-7:]
+
+        def _summarize_period(period_rows: list[dict]) -> dict:
+            if not period_rows:
+                return dict(empty_period)
+            total_interactions = sum(int(row.get("interactions", 0) or 0) for row in period_rows)
+            total_code_gen = sum(int(row.get("code_gen", 0) or 0) for row in period_rows)
+            total_code_accept = sum(int(row.get("code_accept", 0) or 0) for row in period_rows)
+            if scope_users is not None:
+                dau_values = [len(row.get("active_users", set())) for row in period_rows]
+            else:
+                dau_values = [int(row.get("dau", 0) or 0) for row in period_rows]
+            return {
+                "avg_dau": round(sum(dau_values) / len(dau_values), 1) if dau_values else 0.0,
+                "total_interactions": total_interactions,
+                "total_code_gen": total_code_gen,
+                "acceptance_rate": round(total_code_accept / total_code_gen * 100, 1) if total_code_gen > 0 else 0.0,
+            }
+
+        current = _summarize_period(current_days)
+        previous = _summarize_period(previous_days)
+
+        def _pct_delta(current_value: float, previous_value: float) -> float:
+            if previous_value == 0:
+                return 0.0
+            return round((current_value - previous_value) / previous_value * 100, 1)
+
+        return {
+            "has_data": True,
+            "period_days": 7,
+            "current": current,
+            "previous": previous,
+            "deltas": {
+                "dau_pct": _pct_delta(current["avg_dau"], previous["avg_dau"]),
+                "interactions_pct": _pct_delta(current["total_interactions"], previous["total_interactions"]),
+                "code_gen_pct": _pct_delta(current["total_code_gen"], previous["total_code_gen"]),
+                "acceptance_rate_pt": round(current["acceptance_rate"] - previous["acceptance_rate"], 1),
+            },
+        }
+    except Exception:
+        return empty_response

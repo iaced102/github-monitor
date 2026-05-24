@@ -5,9 +5,11 @@ import {
 } from "recharts";
 import { useI18n } from "../contexts/I18nContext";
 import { useUIState } from "../contexts/UIStateContext";
-import { useDashboard } from "../hooks/useData";
+import { useDashboard, useKpiTrend } from "../hooks/useData";
 import { PeriodicReportButton } from "./PeriodicReportButton";
 import { InfoIcon, ChartTitle } from "./InfoIcon";
+import { UserDetailModal } from "./UserDetailModal";
+import { exportCSV } from "../utils/export";
 
 const COLORS = ["#58a6ff", "#3fb950", "#d29922", "#f85149", "#bc8cff", "#f778ba", "#79c0ff", "#56d364"];
 const TOOLTIP_STYLE = { background: "var(--bg-secondary)", border: "1px solid var(--border)", borderRadius: 8, fontSize: 12 };
@@ -65,6 +67,8 @@ export function Dashboard({ refreshKey }: Props) {
     ui.patch({ dashboardSelectedOrgs: next });
   }, [ui.patch, ui.dashboardSelectedOrgs]);
   const { data, loading } = useDashboard(selectedOrgs ?? [], ui.selectedGroupId);
+  const { trend } = useKpiTrend(selectedOrgs ?? [], ui.selectedGroupId);
+  const [drilldownUser, setDrilldownUser] = useState<string | null>(null);
 
   const dateFrom = ui.dashboardDateFrom;
   const setDateFrom = useCallback((v: string) => ui.patch({ dashboardDateFrom: v }), [ui.patch]);
@@ -123,6 +127,8 @@ export function Dashboard({ refreshKey }: Props) {
   }, [selectedOrgs, allOrgs.length, t]);
 
   const hasData = hasSelection && data && (data.daily_trend.length > 0 || data.top_users.length > 0 || data.kpi.total_seats > 0);
+  // When a group scope is selected, still show dashboard even with 0 KPIs
+  const hasDataOrGroupScope = hasData || (hasSelection && !!data && !!ui.selectedGroupId);
 
   // Acceptance rate trend
   const acceptRateTrend = useMemo(() => {
@@ -133,8 +139,29 @@ export function Dashboard({ refreshKey }: Props) {
     }));
   }, [filteredTrend]);
 
+  // WoW delta helper
+  const delta = (key: string) => {
+    if (!trend?.deltas) return null;
+    const v = trend.deltas[key];
+    if (v == null || v === 0) return null;
+    const pos = v > 0;
+    return (
+      <span className={`kpi-delta ${pos ? "kpi-delta-up" : "kpi-delta-down"}`}>
+        {pos ? "▲" : "▼"} {Math.abs(Math.round(v))}%
+      </span>
+    );
+  };
+
   return (
     <div className="dashboard" key={refreshKey}>
+      {drilldownUser && (
+        <UserDetailModal
+          username={drilldownUser}
+          orgs={selectedOrgs ?? undefined}
+          groupId={ui.selectedGroupId}
+          onClose={() => setDrilldownUser(null)}
+        />
+      )}
       {/* Filters */}
       <div className="dashboard-filters">
         <div className="dashboard-filter-group">
@@ -172,9 +199,12 @@ export function Dashboard({ refreshKey }: Props) {
       </div>
 
       {loading && !data && <div className="dashboard-loading">{t("loading")}</div>}
-      {!loading && !hasData && <div className="dashboard-empty">{t("dashboard.noData")}</div>}
+      {!loading && !hasDataOrGroupScope && <div className="dashboard-empty">{t("dashboard.noData")}</div>}
+      {!loading && !hasData && hasDataOrGroupScope && (
+        <div className="dashboard-empty">{t("dashboard.noDataGroup")}</div>
+      )}
 
-      {hasData && (
+      {hasDataOrGroupScope && (
         <>
           {/* Billing scope error banner */}
           {data.kpi.billing_scope_error && (
@@ -208,6 +238,18 @@ export function Dashboard({ refreshKey }: Props) {
               </div>
               <div className="stat-label">{t("sidebar.monthlyWaste")}</div>
             </div>
+            {trend?.has_data && (
+              <>
+                <div className="stat-card stat-card-trend">
+                  <div className="stat-value">{trend.current.acceptance_rate?.toFixed(1)}%</div>
+                  <div className="stat-label">Acceptance Rate {delta("acceptance_rate_pt")}</div>
+                </div>
+                <div className="stat-card stat-card-trend">
+                  <div className="stat-value">{trend.current.avg_dau?.toFixed(1)}</div>
+                  <div className="stat-label">Avg DAU (7d) {delta("dau_pct")}</div>
+                </div>
+              </>
+            )}
             {data.chat_stats && (data.chat_stats.ide_chats > 0 || data.chat_stats.dotcom_chats > 0) && (
               <>
                 <div className="stat-card">
@@ -520,6 +562,8 @@ export function Dashboard({ refreshKey }: Props) {
                     <span className="dash-badge">Pending Invite: {data.seat_info.breakdown.pending_invitation}</span>
                     <span className="dash-badge">Pending Cancel: {data.seat_info.breakdown.pending_cancellation}</span>
                     <span className="dash-badge">Added This Cycle: {data.seat_info.breakdown.added_this_cycle}</span>
+                    <button className="btn btn-small" style={{ marginLeft: "auto" }}
+                      onClick={() => exportCSV("seats", data.seat_info.seats)}>⬇ CSV</button>
                   </div>
                   <div className="dashboard-table-wrap" style={{ maxHeight: 400 }}>
                     <table className="dashboard-table">
@@ -538,10 +582,10 @@ export function Dashboard({ refreshKey }: Props) {
                           const inactive = !s.last_activity_at;
                           const pending = !!s.pending_cancellation_date;
                           return (
-                            <tr key={`${s.org}-${s.user}`}>
+                            <tr key={`${s.org}-${s.user}`} className="clickable-row" onClick={() => setDrilldownUser(s.user)}>
                               <td className="user-name">
                                 {s.avatar && <img src={s.avatar} alt="" className="dash-seat-avatar" />}
-                                {s.user}
+                                <span className="user-link">{s.user}</span>
                               </td>
                               <td>{s.org}</td>
                               <td>{s.team || "—"}</td>
@@ -568,42 +612,47 @@ export function Dashboard({ refreshKey }: Props) {
             <div className="dashboard-charts">
               <div className="chart-card chart-card-wide">
                 {data.top_users.length > 0 ? (
-                  <div className="dashboard-table-wrap">
-                    <table className="dashboard-table">
-                      <thead>
-                        <tr>
-                          <th>#</th>
-                          <th>User</th>
-                          <th>Interactions</th>
-                          <th>Code Gen</th>
-                          <th>Accept</th>
-                          <th>Accept %</th>
-                          <th>LOC Sugg.</th>
-                          <th>LOC Acc.</th>
-                          <th>Days</th>
-                          <th>Chat</th>
-                          <th>Agent</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {data.top_users.map((u, i) => (
-                          <tr key={u.user}>
-                            <td className="rank">{i + 1}</td>
-                            <td className="user-name">{u.user}</td>
-                            <td>{u.interactions.toLocaleString()}</td>
-                            <td>{u.code_gen.toLocaleString()}</td>
-                            <td>{u.code_accept.toLocaleString()}</td>
-                            <td>{u.code_gen > 0 ? `${Math.round((u.code_accept / u.code_gen) * 100)}%` : "—"}</td>
-                            <td>{u.loc_suggested.toLocaleString()}</td>
-                            <td>{u.loc_accepted.toLocaleString()}</td>
-                            <td>{u.days_active}</td>
-                            <td>{u.used_chat ? "\u2713" : ""}</td>
-                            <td>{u.used_agent ? "\u2713" : ""}</td>
+                  <>
+                    <div style={{ display: "flex", justifyContent: "flex-end", marginBottom: 6 }}>
+                      <button className="btn btn-small" onClick={() => exportCSV("top-users", data.top_users)}>⬇ CSV</button>
+                    </div>
+                    <div className="dashboard-table-wrap">
+                      <table className="dashboard-table">
+                        <thead>
+                          <tr>
+                            <th>#</th>
+                            <th>User</th>
+                            <th>Interactions</th>
+                            <th>Code Gen</th>
+                            <th>Accept</th>
+                            <th>Accept %</th>
+                            <th>LOC Sugg.</th>
+                            <th>LOC Acc.</th>
+                            <th>Days</th>
+                            <th>Chat</th>
+                            <th>Agent</th>
                           </tr>
-                        ))}
-                      </tbody>
-                    </table>
-                  </div>
+                        </thead>
+                        <tbody>
+                          {data.top_users.map((u, i) => (
+                            <tr key={u.user} className="clickable-row" onClick={() => setDrilldownUser(u.user)}>
+                              <td className="rank">{i + 1}</td>
+                              <td className="user-name"><span className="user-link">{u.user}</span></td>
+                              <td>{u.interactions.toLocaleString()}</td>
+                              <td>{u.code_gen.toLocaleString()}</td>
+                              <td>{u.code_accept.toLocaleString()}</td>
+                              <td>{u.code_gen > 0 ? `${Math.round((u.code_accept / u.code_gen) * 100)}%` : "—"}</td>
+                              <td>{u.loc_suggested.toLocaleString()}</td>
+                              <td>{u.loc_accepted.toLocaleString()}</td>
+                              <td>{u.days_active}</td>
+                              <td>{u.used_chat ? "\u2713" : ""}</td>
+                              <td>{u.used_agent ? "\u2713" : ""}</td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  </>
                 ) : (
                   <div className="chart-empty">{t("dashboard.noData")}</div>
                 )}

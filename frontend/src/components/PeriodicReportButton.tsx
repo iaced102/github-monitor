@@ -1,4 +1,5 @@
-import { useState } from "react";
+import { useState, useRef, useCallback } from "react";
+import { createPortal } from "react-dom";
 import { useI18n } from "../contexts/I18nContext";
 
 const MONTHS = [
@@ -18,12 +19,25 @@ export function PeriodicReportButton({ selectedOrgs }: Props) {
   const { t } = useI18n();
   const [open, setOpen] = useState(false);
   const [downloading, setDownloading] = useState<ReportFormat | null>(null);
+  const [toast, setToast] = useState<{ msg: string; ok: boolean } | null>(null);
   const [periodType, setPeriodType] = useState<"monthly" | "quarterly">("monthly");
   const [year, setYear] = useState(() => new Date().getFullYear());
   const [period, setPeriod] = useState(() => new Date().getMonth() + 1); // 1-based
+  const toastTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const currentYear = new Date().getFullYear();
   const years = Array.from({ length: 6 }, (_, i) => currentYear - i);
+
+  const dismissToast = useCallback(() => {
+    if (toastTimerRef.current) clearTimeout(toastTimerRef.current);
+    setToast(null);
+  }, []);
+
+  const showToast = useCallback((msg: string, ok: boolean) => {
+    if (toastTimerRef.current) clearTimeout(toastTimerRef.current);
+    setToast({ msg, ok });
+    toastTimerRef.current = setTimeout(() => setToast(null), 15000);
+  }, []);
 
   const handleDownload = async (fmt: ReportFormat) => {
     setDownloading(fmt);
@@ -40,7 +54,7 @@ export function PeriodicReportButton({ selectedOrgs }: Props) {
       const res = await fetch(`/api/data/periodic-report?${params}`);
       if (!res.ok) {
         const err = await res.json().catch(() => ({ error: "Unknown error" }));
-        alert(`Report generation failed: ${err.error || res.statusText}`);
+        showToast(`❌ ${err.error || res.statusText}`, false);
         return;
       }
       const blob = await res.blob();
@@ -56,8 +70,9 @@ export function PeriodicReportButton({ selectedOrgs }: Props) {
       a.remove();
       URL.revokeObjectURL(url);
       setOpen(false);
+      showToast(`✅ Report downloaded: periodic-report-${label}.${fmt}`, true);
     } catch (err) {
-      alert(`Error: ${err}`);
+      showToast(`❌ Error: ${err}`, false);
     } finally {
       setDownloading(null);
     }
@@ -67,12 +82,51 @@ export function PeriodicReportButton({ selectedOrgs }: Props) {
 
   return (
     <div style={{ position: "relative", display: "inline-block" }}>
+      {/* Toast — rendered via portal so it's always above all layers */}
+      {toast && createPortal(
+        <div
+          role="status"
+          aria-live="polite"
+          data-testid="periodic-report-toast"
+          style={{
+            position: "fixed",
+            bottom: 28,
+            right: 28,
+            background: toast.ok ? "#2ea043" : "#da3633",
+            color: "#fff",
+            padding: "12px 20px",
+            borderRadius: 10,
+            fontSize: 13,
+            fontWeight: 600,
+            zIndex: 99999,
+            boxShadow: "0 6px 24px rgba(0,0,0,0.5)",
+            maxWidth: 400,
+            display: "flex",
+            alignItems: "center",
+            gap: 12,
+            lineHeight: 1.4,
+          }}
+        >
+          <span style={{ flex: 1, wordBreak: "break-all" }}>{toast.msg}</span>
+          <button
+            onClick={dismissToast}
+            style={{
+              background: "none", border: "none", color: "#fff",
+              cursor: "pointer", fontSize: 16, padding: "0 2px", lineHeight: 1,
+              flexShrink: 0,
+            }}
+            aria-label="Dismiss"
+          >✕</button>
+        </div>,
+        document.body
+      )}
+
       <button
         className="btn btn-small cc-download-btn"
         onClick={() => setOpen((o) => !o)}
         title={t("periodicReport.title")}
       >
-        📅 {t("periodicReport.title")}
+        {busy ? "⏳" : "📅"} {t("periodicReport.title")}
       </button>
 
       {open && (

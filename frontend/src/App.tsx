@@ -18,6 +18,7 @@ import { LoginPage } from "./components/LoginPage";
 import { AlertPanel, AlertBadge } from "./components/AlertPanel";
 import { ReportHistoryPanel } from "./components/ReportHistoryPanel";
 import { BudgetPanel } from "./components/BudgetPanel";
+import { LifecyclePanel } from "./components/LifecyclePanel";
 import type { Recommendation } from "./types";
 import "./styles/index.css";
 
@@ -99,7 +100,10 @@ function AppLayout({ onLogout }: { onLogout: () => void }) {
   // Removed: was causing console to pop open automatically on every sync
 
   const togglePanel = useCallback((key: string) => {
-    ui.patch({ sidebarCollapsed: { ...ui.sidebarCollapsed, [key]: !ui.sidebarCollapsed[key] } });
+    const currentVal = ui.sidebarCollapsed[key];
+    // If undefined, default depends on which panel - treat as collapsed (true) so toggle opens it
+    const current = currentVal === undefined ? true : currentVal;
+    ui.patch({ sidebarCollapsed: { ...ui.sidebarCollapsed, [key]: !current } });
   }, [ui.patch, ui.sidebarCollapsed]);
 
   // Wrap sendMessage to pass current session id and refresh session list after
@@ -301,6 +305,13 @@ function AppLayout({ onLogout }: { onLogout: () => void }) {
             onToggle={() => togglePanel("actions")}
           >
             <ActionPanel key={refreshKey} onExecute={handleExecuteAction} />
+          </SidebarPanel>
+          <SidebarPanel
+            title={t("lifecycle.title")}
+            collapsed={collapsed.lifecycle ?? true}
+            onToggle={() => togglePanel("lifecycle")}
+          >
+            <LifecyclePanel onRecommendationsCreated={() => setRefreshKey(k => k + 1)} />
           </SidebarPanel>
           <SidebarPanel
             title={t("alerts.title")}

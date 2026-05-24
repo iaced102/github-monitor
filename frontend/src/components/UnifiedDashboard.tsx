@@ -8,6 +8,9 @@ import { CostCenterDashboard } from "./CostCenterDashboard";
 import { UsageMonitorDashboard } from "./UsageMonitorDashboard";
 import { UserGroupsPage } from "./UserGroupsPage";
 import { GroupFilter } from "./GroupFilter";
+import { RoiDashboard } from "./RoiDashboard";
+
+type DashTab = "metrics" | "premium" | "usage" | "costcenter" | "monitor" | "roi" | "groups";
 
 interface Props {
   refreshKey: number;
@@ -17,10 +20,9 @@ export function UnifiedDashboard({ refreshKey }: Props) {
   const { t } = useI18n();
   const ui = useUIState();
   const { currentUser } = useCurrentUser();
-  const tab = ui.dashboardTab ?? "metrics";
+  const tab = (ui.dashboardTab ?? "metrics") as DashTab;
   const setTab = useCallback(
-    (v: "metrics" | "premium" | "usage" | "costcenter" | "monitor" | "groups") =>
-      ui.patch({ dashboardTab: v }),
+    (v: DashTab) => ui.patch({ dashboardTab: v as any }),
     [ui.patch],
   );
 
@@ -38,41 +40,26 @@ export function UnifiedDashboard({ refreshKey }: Props) {
     <div className="unified-dashboard">
       <div className="dashboard-tab-bar">
         <div className="view-toggle">
-          <button
-            className={`btn btn-small btn-toggle ${tab === "metrics" ? "btn-toggle-active" : ""}`}
-            onClick={() => setTab("metrics")}
-          >
+          <button className={`btn btn-small btn-toggle ${tab === "metrics" ? "btn-toggle-active" : ""}`} onClick={() => setTab("metrics")}>
             {t("nav.dashMetrics")}
           </button>
-          <button
-            className={`btn btn-small btn-toggle ${tab === "premium" ? "btn-toggle-active" : ""}`}
-            onClick={() => setTab("premium")}
-          >
+          <button className={`btn btn-small btn-toggle ${tab === "premium" ? "btn-toggle-active" : ""}`} onClick={() => setTab("premium")}>
             {t("csvDash.tabs.premium")}
           </button>
-          <button
-            className={`btn btn-small btn-toggle ${tab === "usage" ? "btn-toggle-active" : ""}`}
-            onClick={() => setTab("usage")}
-          >
+          <button className={`btn btn-small btn-toggle ${tab === "usage" ? "btn-toggle-active" : ""}`} onClick={() => setTab("usage")}>
             {t("csvDash.tabs.usage")}
           </button>
-          <button
-            className={`btn btn-small btn-toggle ${tab === "costcenter" ? "btn-toggle-active" : ""}`}
-            onClick={() => setTab("costcenter")}
-          >
+          <button className={`btn btn-small btn-toggle ${tab === "costcenter" ? "btn-toggle-active" : ""}`} onClick={() => setTab("costcenter")}>
             {t("ccDash.tab")}
           </button>
-          <button
-            className={`btn btn-small btn-toggle ${tab === "monitor" ? "btn-toggle-active" : ""}`}
-            onClick={() => setTab("monitor")}
-          >
+          <button className={`btn btn-small btn-toggle ${tab === "monitor" ? "btn-toggle-active" : ""}`} onClick={() => setTab("monitor")}>
             {t("monitor.tab")}
           </button>
+          <button className={`btn btn-small btn-toggle ${tab === "roi" ? "btn-toggle-active" : ""}`} onClick={() => setTab("roi")}>
+            ROI
+          </button>
           {isSuperAdmin && (
-            <button
-              className={`btn btn-small btn-toggle ${tab === "groups" ? "btn-toggle-active" : ""}`}
-              onClick={() => setTab("groups")}
-            >
+            <button className={`btn btn-small btn-toggle ${tab === "groups" ? "btn-toggle-active" : ""}`} onClick={() => setTab("groups")}>
               {t("groups.tab")}
             </button>
           )}
@@ -93,6 +80,8 @@ export function UnifiedDashboard({ refreshKey }: Props) {
         <CostCenterDashboard refreshKey={refreshKey} />
       ) : tab === "monitor" ? (
         <UsageMonitorDashboard refreshKey={refreshKey} selectedOrgs={selectedOrgs} />
+      ) : tab === "roi" ? (
+        <RoiDashboard refreshKey={refreshKey} />
       ) : tab === "groups" ? (
         <UserGroupsPage />
       ) : (

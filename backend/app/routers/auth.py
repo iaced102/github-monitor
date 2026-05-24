@@ -34,7 +34,7 @@ _AUTH_FILE = DATA_DIR / "auth.json"
 _active_sessions: dict[str, dict] = {}
 
 # Paths that do NOT require authentication
-AUTH_PUBLIC_PATHS = {"/api/auth/status", "/api/auth/setup", "/api/auth/login"}
+AUTH_PUBLIC_PATHS = {"/api/auth/status", "/api/auth/setup", "/api/auth/login", "/api/auth/me", "/api/health"}
 
 
 def _hash_password(password: str, salt: bytes) -> str:

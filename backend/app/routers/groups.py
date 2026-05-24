@@ -12,6 +12,7 @@ from fastapi import APIRouter, Request, UploadFile, File
 from pydantic import BaseModel
 
 from ..services import database as db_module
+from ..services.data_collector import data_collector
 
 router = APIRouter(prefix="/groups", tags=["groups"])
 
@@ -144,6 +145,84 @@ async def remove_member(group_id: int, username: str, request: Request):
     db = _get_db()
     db.remove_group_member(group_id, username)
     return {"ok": True}
+
+
+# ---------------------------------------------------------------------------
+# Available users (from seat data, for autocomplete)
+# ---------------------------------------------------------------------------
+
+@router.get("/available-users")
+async def get_available_users(request: Request):
+    """Return all GitHub usernames with Copilot seats, for autocomplete when adding members."""
+    user = getattr(request.state, "current_user", None)
+    if not user:
+        return {"error": "Not authenticated"}
+
+    all_logins: set[str] = set()
+    all_seats = data_collector.load_all_latest("seats")
+    for _org, seats_data in all_seats.items():
+        seats = seats_data if isinstance(seats_data, list) else seats_data.get("seats", [])
+        for seat in seats:
+            if isinstance(seat, dict):
+                login = (
+                    seat.get("assignee", {}).get("login")
+                    or seat.get("login")
+                    or ""
+                )
+                if login:
+                    all_logins.add(login.lower())
+
+    return {"users": sorted(all_logins)}
+
+
+# ---------------------------------------------------------------------------
+# JSON import: accept pre-validated rows from frontend
+# ---------------------------------------------------------------------------
+
+class ImportRow(BaseModel):
+    username: str
+    group: str
+
+class ImportDataBody(BaseModel):
+    rows: list[ImportRow]
+
+@router.post("/import-data")
+async def import_data(body: ImportDataBody, request: Request):
+    """Import pre-validated rows from the frontend (username + group pairs)."""
+    try:
+        _require_super_admin(request)
+    except PermissionError as e:
+        return {"error": str(e)}
+
+    db = _get_db()
+    by_group: dict[str, list[str]] = {}
+    for row in body.rows:
+        username = row.username.strip().lower()
+        group_name = row.group.strip()
+        if username and group_name:
+            by_group.setdefault(group_name, []).append(username)
+
+    if not by_group:
+        return {"error": "No valid rows to import"}
+
+    groups_created = 0
+    members_added = 0
+    for group_name, usernames in by_group.items():
+        grp = db.get_group_by_name(group_name)
+        if grp is None:
+            gid = db.create_group(group_name)
+            groups_created += 1
+        else:
+            gid = grp["id"]
+        db.add_group_members(gid, usernames)
+        members_added += len(usernames)
+
+    return {
+        "ok": True,
+        "groups_created": groups_created,
+        "members_added": members_added,
+        "preview": [{"group": g, "count": len(us)} for g, us in by_group.items()],
+    }
 
 
 # ---------------------------------------------------------------------------

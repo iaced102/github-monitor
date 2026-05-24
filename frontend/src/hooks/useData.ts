@@ -243,6 +243,58 @@ export function useCsvDashboard(params: {
   return { data, loading, refetch: fetchData };
 }
 
+export function useRoiDashboard(selectedOrgs: string[], groupId?: number | null) {
+  const [data, setData] = useState<any | null>(null);
+  const [loading, setLoading] = useState(true);
+
+  const fetchData = useCallback(async () => {
+    setLoading(true);
+    try {
+      const qp = new URLSearchParams();
+      if (selectedOrgs.length > 0) qp.set("orgs", selectedOrgs.join(","));
+      if (groupId) qp.set("group_id", String(groupId));
+      const res = await fetch(`/api/data/roi?${qp}`);
+      setData(await res.json());
+    } catch { setData(null); }
+    finally { setLoading(false); }
+  }, [selectedOrgs.join(","), groupId]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  useEffect(() => { fetchData(); }, [fetchData]);
+  return { data, loading, refetch: fetchData };
+}
+
+export function useKpiTrend(selectedOrgs: string[], groupId?: number | null) {
+  const [data, setData] = useState<any | null>(null);
+
+  useEffect(() => {
+    const qp = new URLSearchParams();
+    if (selectedOrgs.length > 0) qp.set("orgs", selectedOrgs.join(","));
+    if (groupId) qp.set("group_id", String(groupId));
+    fetch(`/api/data/kpi-trend?${qp}`)
+      .then((r) => r.json()).then(setData).catch(() => setData(null));
+  }, [selectedOrgs.join(","), groupId]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  return { trend: data };
+}
+
+export function useLifecycleScan(thresholdDays: number, groupId?: number | null) {
+  const [data, setData] = useState<any | null>(null);
+  const [loading, setLoading] = useState(false);
+
+  const scan = useCallback(async () => {
+    setLoading(true);
+    try {
+      const qp = new URLSearchParams({ threshold_days: String(thresholdDays) });
+      if (groupId) qp.set("group_id", String(groupId));
+      const res = await fetch(`/api/data/lifecycle-scan?${qp}`);
+      setData(await res.json());
+    } catch { setData(null); }
+    finally { setLoading(false); }
+  }, [thresholdDays, groupId]);
+
+  return { data, loading, scan };
+}
+
 export function useUsageMonitor(selectedOrgs: string[], groupId?: number | null) {
   const [data, setData] = useState<any | null>(null);
   const [loading, setLoading] = useState(true);

@@ -36,14 +36,14 @@ def create_billing_tools(collector: DataCollector) -> list:
             if not billing and not seats_data:
                 continue
 
-            price = 19.0
+            price = 39.0
             plan_type = "business"
             total = 0
             active = 0
             pending_cancel = 0
 
             if billing:
-                price = billing.get("_detected_price_per_seat", 19.0)
+                price = billing.get("_detected_price_per_seat", 39.0)
                 plan_type = billing.get("_detected_plan_type", "business")
                 seat_breakdown = billing.get("seat_breakdown", {})
                 total = seat_breakdown.get("total", 0)

@@ -369,6 +369,14 @@ class Database:
             )
             self._conn.commit()
 
+    def update_app_user_role(self, username: str, role: str):
+        with self._lock:
+            self._conn.execute(
+                "UPDATE app_users SET role = ? WHERE username = ?",
+                (role, username),
+            )
+            self._conn.commit()
+
     def delete_app_user(self, username: str):
         with self._lock:
             self._conn.execute("DELETE FROM app_users WHERE username = ?", (username,))

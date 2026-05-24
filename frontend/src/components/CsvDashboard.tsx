@@ -8,6 +8,7 @@ import { useUIState } from "../contexts/UIStateContext";
 import { useCsvDashboard } from "../hooks/useData";
 import type { PremiumCsvSection, UsageReportSection, ApiUsageSection, ApiPremiumSection } from "../types";
 import { InfoIcon, ChartTitle } from "./InfoIcon";
+import { exportCSV } from "../utils/export";
 
 const COLORS = ["#58a6ff", "#3fb950", "#d29922", "#f85149", "#bc8cff", "#f778ba", "#79c0ff", "#56d364"];
 const TOOLTIP_STYLE = { background: "var(--bg-secondary)", border: "1px solid var(--border)", borderRadius: 8, fontSize: 12 };
@@ -198,7 +199,11 @@ function ApiUsageContent({ data }: { data: ApiUsageSection }) {
         <div className="dashboard-charts">
           <div className="chart-card chart-card-wide">
             {data.users.length > 0 ? (
-              <div className="dashboard-table-wrap">
+              <>
+                <div style={{ display: "flex", justifyContent: "flex-end", marginBottom: 6 }}>
+                  <button className="btn btn-small" onClick={() => exportCSV("api-usage-users", data.users)}>⬇ CSV</button>
+                </div>
+                <div className="dashboard-table-wrap">
                 <table className="dashboard-table">
                   <thead>
                     <tr>
@@ -238,6 +243,7 @@ function ApiUsageContent({ data }: { data: ApiUsageSection }) {
                   </tbody>
                 </table>
               </div>
+              </>
             ) : <div className="chart-empty">{t("csvDash.noData")}</div>}
           </div>
         </div>
@@ -354,7 +360,11 @@ function PremiumContent({ data, apiData }: { data: PremiumCsvSection; apiData?: 
         <div className="dashboard-charts">
           <div className="chart-card chart-card-wide">
             {data.users.length > 0 ? (
-              <div className="dashboard-table-wrap">
+              <>
+                <div style={{ display: "flex", justifyContent: "flex-end", marginBottom: 6 }}>
+                  <button className="btn btn-small" onClick={() => exportCSV("premium-users", data.users)}>⬇ CSV</button>
+                </div>
+                <div className="dashboard-table-wrap">
                 <table className="dashboard-table">
                   <thead>
                     <tr>
@@ -404,6 +414,7 @@ function PremiumContent({ data, apiData }: { data: PremiumCsvSection; apiData?: 
                   </tbody>
                 </table>
               </div>
+              </>
             ) : <div className="chart-empty">{t("csvDash.noData")}</div>}
           </div>
         </div>
@@ -539,7 +550,11 @@ function UsageContent({ data, apiData }: { data: UsageReportSection; apiData?: A
         <div className="dashboard-charts">
           <div className="chart-card chart-card-wide">
             {data.users.length > 0 ? (
-              <div className="dashboard-table-wrap">
+              <>
+                <div style={{ display: "flex", justifyContent: "flex-end", marginBottom: 6 }}>
+                  <button className="btn btn-small" onClick={() => exportCSV("usage-report-users", data.users)}>⬇ CSV</button>
+                </div>
+                <div className="dashboard-table-wrap">
                 <table className="dashboard-table">
                   <thead>
                     <tr>
@@ -576,7 +591,8 @@ function UsageContent({ data, apiData }: { data: UsageReportSection; apiData?: A
                     ))}
                   </tbody>
                 </table>
-              </div>
+                </div>
+              </>
             ) : <div className="chart-empty">{t("csvDash.noData")}</div>}
           </div>
         </div>
