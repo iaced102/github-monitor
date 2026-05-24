@@ -20,7 +20,8 @@ export function GroupFilter() {
 
   const selectedGroupId = ui.selectedGroupId;
   const setGroupId = useCallback(
-    (id: number | null) => ui.patch({ selectedGroupId: id }),
+    (id: number | null, name: string | null = null) =>
+      ui.patch({ selectedGroupId: id, selectedGroupName: name }),
     [ui.patch],
   );
 
@@ -48,7 +49,7 @@ export function GroupFilter() {
   // Auto-select for manager with single group (but still render for visibility)
   if (!isSuperAdmin && groups.length === 1 && selectedGroupId === null) {
     // Defer to avoid React state-during-render warning
-    setTimeout(() => setGroupId(groups[0].id), 0);
+    setTimeout(() => setGroupId(groups[0].id, groups[0].name), 0);
   }
 
   return (
@@ -59,7 +60,13 @@ export function GroupFilter() {
         value={selectedGroupId ?? ""}
         onChange={(e) => {
           const val = e.target.value;
-          setGroupId(val === "" ? null : Number(val));
+          if (val === "") {
+            setGroupId(null, null);
+          } else {
+            const id = Number(val);
+            const group = groups.find((g) => g.id === id);
+            setGroupId(id, group ? `${group.name} (${group.member_count})` : null);
+          }
         }}
       >
         {isSuperAdmin && (

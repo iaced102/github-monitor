@@ -27,6 +27,7 @@ export interface UIState {
   ccDashSearch: string;
   // Group scope filter (applies to all dashboard tabs)
   selectedGroupId: number | null;
+  selectedGroupName: string | null;
 }
 
 
@@ -57,6 +58,7 @@ const DEFAULTS: UIState = {
   ccDashState: "active",
   ccDashSearch: "",
   selectedGroupId: null,
+  selectedGroupName: null,
 };
 
 interface UIStateContextValue extends UIState {

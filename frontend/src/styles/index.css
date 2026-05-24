@@ -2814,6 +2814,21 @@ body {
   text-transform: uppercase;
 }
 
+/* Scope banner — shown below tab bar when group scope is active */
+.scope-banner {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 16px;
+  font-size: 12px;
+  color: var(--accent);
+  background: rgba(88, 166, 255, 0.08);
+  border-bottom: 1px solid rgba(88, 166, 255, 0.25);
+}
+.scope-banner strong {
+  font-weight: 600;
+}
+
 /* ─────────────────────────────────────────────
    User Groups Page
 ───────────────────────────────────────────── */

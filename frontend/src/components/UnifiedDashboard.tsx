@@ -74,6 +74,12 @@ export function UnifiedDashboard({ refreshKey }: Props) {
         {tab !== "groups" && <GroupFilter />}
       </div>
 
+      {tab !== "groups" && ui.selectedGroupId !== null && (
+        <div className="scope-banner">
+          🔍 {t("groups.scopeBanner")}: <strong>{ui.selectedGroupName || t("groups.filtered")}</strong>
+        </div>
+      )}
+
       {tab === "metrics" ? (
         <Dashboard refreshKey={refreshKey} />
       ) : tab === "costcenter" ? (

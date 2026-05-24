@@ -434,6 +434,78 @@ async def get_dashboard(request: Request, orgs: str = Query(default=""), group_i
                     lang_map[lang]["loc_suggested"] += lb.get("loc_suggested_to_add_sum", 0) + lb.get("loc_suggested_to_delete_sum", 0)
                     lang_map[lang]["loc_accepted"] += lb.get("loc_added_sum", 0) + lb.get("loc_deleted_sum", 0)
 
+    # When group scope is active, rebuild usage aggregates from per-user (usage_users) data
+    # so all charts reflect only the filtered users' activity.
+    if scope_users is not None:
+        daily_map = {}
+        feature_map = defaultdict(lambda: {"interactions": 0, "code_gen": 0, "code_accept": 0, "loc_suggested": 0, "loc_accepted": 0})
+        model_map = defaultdict(lambda: {"interactions": 0, "code_gen": 0, "code_accept": 0, "loc_suggested": 0, "loc_accepted": 0})
+        ide_map = defaultdict(lambda: {"interactions": 0, "code_gen": 0, "code_accept": 0, "loc_suggested": 0, "loc_accepted": 0})
+        lang_map = defaultdict(lambda: {"code_gen": 0, "code_accept": 0, "loc_suggested": 0, "loc_accepted": 0})
+        date_start = ""
+        date_end = ""
+        for org_name in selected:
+            uu = data_collector.load_latest("usage_users", org_name)
+            if not uu:
+                continue
+            for rec in (uu if isinstance(uu, list) else uu.get("records", [uu])):
+                login = rec.get("user_login", "")
+                if not login or login.lower() not in scope_users:
+                    continue
+                rs = rec.get("report_start_day", "")
+                re_ = rec.get("report_end_day", "")
+                if rs and (not date_start or rs < date_start):
+                    date_start = rs
+                if re_ and (not date_end or re_ > date_end):
+                    date_end = re_
+                day = rec.get("day", "")
+                if day:
+                    if day not in daily_map:
+                        daily_map[day] = {
+                            "day": day, "dau": 0, "wau": 0, "mau": 0,
+                            "chat_users": 0, "agent_users": 0,
+                            "interactions": 0, "code_gen": 0, "code_accept": 0,
+                            "loc_suggested": 0, "loc_accepted": 0,
+                        }
+                    dm = daily_map[day]
+                    dm["dau"] += 1
+                    dm["interactions"] += rec.get("user_initiated_interaction_count", 0)
+                    dm["code_gen"] += rec.get("code_generation_activity_count", 0)
+                    dm["code_accept"] += rec.get("code_acceptance_activity_count", 0)
+                    dm["loc_suggested"] += rec.get("loc_suggested_to_add_sum", 0) + rec.get("loc_suggested_to_delete_sum", 0)
+                    dm["loc_accepted"] += rec.get("loc_added_sum", 0) + rec.get("loc_deleted_sum", 0)
+                    if rec.get("used_chat"):
+                        dm["chat_users"] += 1
+                    if rec.get("used_agent") or rec.get("used_copilot_coding_agent"):
+                        dm["agent_users"] += 1
+                for fb in rec.get("totals_by_feature", []):
+                    f = fb.get("feature", "unknown")
+                    feature_map[f]["interactions"] += fb.get("user_initiated_interaction_count", 0)
+                    feature_map[f]["code_gen"] += fb.get("code_generation_activity_count", 0)
+                    feature_map[f]["code_accept"] += fb.get("code_acceptance_activity_count", 0)
+                    feature_map[f]["loc_suggested"] += fb.get("loc_suggested_to_add_sum", 0) + fb.get("loc_suggested_to_delete_sum", 0)
+                    feature_map[f]["loc_accepted"] += fb.get("loc_added_sum", 0) + fb.get("loc_deleted_sum", 0)
+                for mb in rec.get("totals_by_model_feature", []):
+                    m = mb.get("model", "unknown")
+                    model_map[m]["interactions"] += mb.get("user_initiated_interaction_count", 0)
+                    model_map[m]["code_gen"] += mb.get("code_generation_activity_count", 0)
+                    model_map[m]["code_accept"] += mb.get("code_acceptance_activity_count", 0)
+                    model_map[m]["loc_suggested"] += mb.get("loc_suggested_to_add_sum", 0) + mb.get("loc_suggested_to_delete_sum", 0)
+                    model_map[m]["loc_accepted"] += mb.get("loc_added_sum", 0) + mb.get("loc_deleted_sum", 0)
+                for ib in rec.get("totals_by_ide", []):
+                    ide = ib.get("ide", "unknown")
+                    ide_map[ide]["interactions"] += ib.get("user_initiated_interaction_count", 0)
+                    ide_map[ide]["code_gen"] += ib.get("code_generation_activity_count", 0)
+                    ide_map[ide]["code_accept"] += ib.get("code_acceptance_activity_count", 0)
+                    ide_map[ide]["loc_suggested"] += ib.get("loc_suggested_to_add_sum", 0) + ib.get("loc_suggested_to_delete_sum", 0)
+                    ide_map[ide]["loc_accepted"] += ib.get("loc_added_sum", 0) + ib.get("loc_deleted_sum", 0)
+                for lb in rec.get("totals_by_language_feature", []):
+                    lang = lb.get("language", "unknown")
+                    lang_map[lang]["code_gen"] += lb.get("code_generation_activity_count", 0)
+                    lang_map[lang]["code_accept"] += lb.get("code_acceptance_activity_count", 0)
+                    lang_map[lang]["loc_suggested"] += lb.get("loc_suggested_to_add_sum", 0) + lb.get("loc_suggested_to_delete_sum", 0)
+                    lang_map[lang]["loc_accepted"] += lb.get("loc_added_sum", 0) + lb.get("loc_deleted_sum", 0)
+
     daily_trend = sorted(daily_map.values(), key=lambda x: x["day"])
 
     feature_usage = [{"feature": k, **v} for k, v in sorted(feature_map.items(), key=lambda x: -x[1]["interactions"])]
@@ -1774,15 +1846,19 @@ async def get_usage_monitor(
         lambda: defaultdict(lambda: {"interactions": 0, "code_gen": 0, "code_accept": 0})
     )
 
-    for scope in scopes:
-        usage = data_collector.load_latest("usage", scope)
-        if not usage:
-            continue
-        records = usage if isinstance(usage, list) else usage.get("records", [usage])
-        for rec in records:
-            for day_rec in rec.get("day_totals", []):
-                day = day_rec.get("day", "")
-                for mf in day_rec.get("totals_by_model_feature", []):
+    if scope_users is not None:
+        # When group scope is active, build model aggregates from per-user data
+        for scope in scopes:
+            uu = data_collector.load_latest("usage_users", scope)
+            if not uu:
+                continue
+            uu_records = uu if isinstance(uu, list) else uu.get("records", [uu])
+            for rec in uu_records:
+                login = rec.get("user_login", "unknown")
+                if login.lower() not in scope_users:
+                    continue
+                day = rec.get("day", "")
+                for mf in rec.get("totals_by_model_feature", []):
                     m = mf.get("model", "unknown")
                     model_totals[m]["interactions"] += mf.get("user_initiated_interaction_count", 0)
                     model_totals[m]["code_gen"] += mf.get("code_generation_activity_count", 0)
@@ -1793,15 +1869,45 @@ async def get_usage_monitor(
                     model_feature[(m, feat)]["interactions"] += mf.get("user_initiated_interaction_count", 0)
                     model_feature[(m, feat)]["code_gen"] += mf.get("code_generation_activity_count", 0)
                     model_feature[(m, feat)]["code_accept"] += mf.get("code_acceptance_activity_count", 0)
-                    daily_model[day][m]["interactions"] += mf.get("user_initiated_interaction_count", 0)
-                    daily_model[day][m]["code_gen"] += mf.get("code_generation_activity_count", 0)
-                    daily_model[day][m]["code_accept"] += mf.get("code_acceptance_activity_count", 0)
-                for lm in day_rec.get("totals_by_language_model", []):
+                    if day:
+                        daily_model[day][m]["interactions"] += mf.get("user_initiated_interaction_count", 0)
+                        daily_model[day][m]["code_gen"] += mf.get("code_generation_activity_count", 0)
+                        daily_model[day][m]["code_accept"] += mf.get("code_acceptance_activity_count", 0)
+                for lm in rec.get("totals_by_language_model", []):
                     lang = lm.get("language", "unknown")
                     m = lm.get("model", "unknown")
                     model_lang[(m, lang)]["code_gen"] += lm.get("code_generation_activity_count", 0)
                     model_lang[(m, lang)]["code_accept"] += lm.get("code_acceptance_activity_count", 0)
                     model_lang[(m, lang)]["loc_suggested"] += lm.get("loc_suggested_to_add_sum", 0)
+    else:
+        for scope in scopes:
+            usage = data_collector.load_latest("usage", scope)
+            if not usage:
+                continue
+            records = usage if isinstance(usage, list) else usage.get("records", [usage])
+            for rec in records:
+                for day_rec in rec.get("day_totals", []):
+                    day = day_rec.get("day", "")
+                    for mf in day_rec.get("totals_by_model_feature", []):
+                        m = mf.get("model", "unknown")
+                        model_totals[m]["interactions"] += mf.get("user_initiated_interaction_count", 0)
+                        model_totals[m]["code_gen"] += mf.get("code_generation_activity_count", 0)
+                        model_totals[m]["code_accept"] += mf.get("code_acceptance_activity_count", 0)
+                        model_totals[m]["loc_suggested"] += mf.get("loc_suggested_to_add_sum", 0)
+                        model_totals[m]["loc_added"] += mf.get("loc_added_sum", 0)
+                        feat = mf.get("feature", "unknown")
+                        model_feature[(m, feat)]["interactions"] += mf.get("user_initiated_interaction_count", 0)
+                        model_feature[(m, feat)]["code_gen"] += mf.get("code_generation_activity_count", 0)
+                        model_feature[(m, feat)]["code_accept"] += mf.get("code_acceptance_activity_count", 0)
+                        daily_model[day][m]["interactions"] += mf.get("user_initiated_interaction_count", 0)
+                        daily_model[day][m]["code_gen"] += mf.get("code_generation_activity_count", 0)
+                        daily_model[day][m]["code_accept"] += mf.get("code_acceptance_activity_count", 0)
+                    for lm in day_rec.get("totals_by_language_model", []):
+                        lang = lm.get("language", "unknown")
+                        m = lm.get("model", "unknown")
+                        model_lang[(m, lang)]["code_gen"] += lm.get("code_generation_activity_count", 0)
+                        model_lang[(m, lang)]["code_accept"] += lm.get("code_acceptance_activity_count", 0)
+                        model_lang[(m, lang)]["loc_suggested"] += lm.get("loc_suggested_to_add_sum", 0)
 
     # ── aggregate usage_users (per-user) ──────────────────────────────────────
     user_model: dict[str, dict[str, dict]] = defaultdict(
