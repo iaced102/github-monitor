@@ -259,6 +259,14 @@ export function UserGroupsPage() {
   useEffect(() => { loadGroups(); }, [loadGroups]);
   useEffect(() => { if (subTab === "managers") loadManagers(); }, [subTab, loadManagers]);
 
+  // Escape key closes Reset Password modal
+  useEffect(() => {
+    if (!resetPasswordFor) return;
+    const handler = (e: KeyboardEvent) => { if (e.key === "Escape") { setResetPasswordFor(null); setResetPasswordValue(""); } };
+    document.addEventListener("keydown", handler);
+    return () => document.removeEventListener("keydown", handler);
+  }, [resetPasswordFor]);
+
   // ── Groups CRUD ──────────────────────────────────────────────────────────
 
   const handleCreateGroup = async () => {

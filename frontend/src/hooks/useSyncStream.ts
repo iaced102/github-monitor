@@ -139,6 +139,13 @@ export function useSyncStream(onLog: (entry: ConsoleEntry) => void) {
                   prevSyncingRef.current = !!data.syncing;
                 } else if (data.type === "sync_start") {
                   setSyncing(true);
+                  // Emit separator before "Data sync started" to visually separate sync sessions
+                  onLogRef.current({
+                    id: nextSyncId(),
+                    timestamp: Date.now(),
+                    type: "separator",
+                    title: new Date().toLocaleTimeString(),
+                  });
                   prevSyncingRef.current = true;
                   onLogRef.current({
                     id: nextSyncId(),

@@ -14,12 +14,17 @@ const TOOLTIP_STYLE = { background: "var(--bg-secondary)", border: "1px solid va
 
 const FEATURE_NAME_MAP: Record<string, string> = {
   chat_panel_agent_mode: "Chat – Agent Mode",
+  chat_panel_ask_mode: "Chat – Ask Mode",
+  chat_panel_plan_mode: "Chat – Plan Mode",
   chat_panel_custom_mode: "Chat – Custom Mode",
   chat_panel_default: "Chat – Default",
+  chat_panel_unknown_mode: "Chat – Unknown Mode",
+  chat_inline: "Chat – Inline",
   copilot_cli: "Copilot CLI",
   agent_edit: "Agent Edit",
-  inline_suggestions: "Inline Suggestions",
+  code_completion: "Code Completions",
   code_completions: "Code Completions",
+  inline_suggestions: "Inline Suggestions",
   pull_request_summaries: "Pull Request Summaries",
   code_review: "Code Review",
   test_generation: "Test Generation",
