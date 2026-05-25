@@ -134,14 +134,29 @@ class Database:
     # Data snapshots                                                       #
     # ------------------------------------------------------------------ #
 
+    # Keep only this many snapshots per (category, org) — older rows are pruned.
+    _SNAPSHOT_RETENTION = 10
+
     def save_snapshot(self, category: str, org: str, data: dict | list):
-        """Persist a data snapshot for (category, org)."""
+        """Persist a data snapshot for (category, org), pruning old rows."""
         ts = datetime.now(timezone.utc).isoformat()
         serialized = json.dumps(data, default=str)
         with self._lock:
             self._conn.execute(
                 "INSERT INTO data_snapshots (category, org, data, created_at) VALUES (?, ?, ?, ?)",
                 (category, org, serialized, ts),
+            )
+            # Prune: keep only the N most recent rows for this (category, org)
+            self._conn.execute(
+                """DELETE FROM data_snapshots
+                   WHERE category = ? AND org = ?
+                     AND id NOT IN (
+                         SELECT id FROM data_snapshots
+                         WHERE category = ? AND org = ?
+                         ORDER BY created_at DESC
+                         LIMIT ?
+                     )""",
+                (category, org, category, org, self._SNAPSHOT_RETENTION),
             )
             self._conn.commit()
 
