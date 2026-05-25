@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useEffect } from "react";
 import { useI18n } from "../contexts/I18nContext";
 import { usePATs } from "../hooks/usePATs";
 
@@ -38,53 +38,15 @@ function describeCron(cron: string): string {
   return "";
 }
 
-export function PATSettingsModal({ onClose, onPATChange }: Props) {
+export function PATSettingsModal({ onClose, onPATChange: _onPATChange }: Props) {
   const { t } = useI18n();
-  const { pats, loading, error, addPAT, removePAT, clearError, settings, updateSettings } = usePATs();
-  const [label, setLabel] = useState("");
-  const [token, setToken] = useState("");
-  const [enterpriseSlug, setEnterpriseSlug] = useState("");
-  const [confirmDelete, setConfirmDelete] = useState<string | null>(null);
+  const { pats, settings, updateSettings } = usePATs();
 
   useEffect(() => {
     const handler = (e: KeyboardEvent) => { if (e.key === "Escape") onClose(); };
     document.addEventListener("keydown", handler);
     return () => document.removeEventListener("keydown", handler);
   }, [onClose]);
-
-  const handleAdd = async () => {
-    if (!token.trim()) return;
-    clearError();
-    const slugs = enterpriseSlug.trim()
-      ? enterpriseSlug.split(",").map((s) => s.trim()).filter(Boolean)
-      : [];
-    const result = await addPAT(label.trim() || "Untitled", token.trim(), slugs);
-    if (result) {
-      setLabel("");
-      setToken("");
-      setEnterpriseSlug("");
-      onPATChange?.();
-    }
-  };
-
-  const handleDelete = async (id: string) => {
-    if (confirmDelete !== id) {
-      setConfirmDelete(id);
-      return;
-    }
-    setConfirmDelete(null);
-    const ok = await removePAT(id);
-    if (ok) {
-      onPATChange?.();
-    }
-  };
-
-  const handleKeyDown = (e: React.KeyboardEvent) => {
-    if (e.key === "Enter" && !e.shiftKey) {
-      e.preventDefault();
-      handleAdd();
-    }
-  };
 
   return (
     <div className="settings-modal-overlay" onClick={onClose}>
@@ -95,98 +57,38 @@ export function PATSettingsModal({ onClose, onPATChange }: Props) {
         </div>
 
         <div className="settings-modal-body">
-          <h3>{t("settings.pats")}</h3>
-
-          {error && (
-            <div className="settings-error">
-              {t("settings.patError")}: {error}
-            </div>
-          )}
-
-          <div className="pat-list">
-            {pats.length === 0 && (
-              <div className="pat-empty">{t("settings.noPats")}</div>
-            )}
-            {pats.map((pat) => (
-              <div key={pat.id} className="pat-item">
-                <div className="pat-item-left">
-                  {pat.user_avatar && (
-                    <img
-                      src={pat.user_avatar}
-                      alt={pat.user_login}
-                      className="pat-avatar"
-                    />
-                  )}
-                  <div className="pat-item-info">
-                    <div className="pat-item-user">
-                      <strong>{pat.user_login || "Validating..."}</strong>
-                      {(pat.orgs?.length > 0 || !pat.enterprise_slugs?.length) && (
-                        <span className="pat-item-orgs">{pat.orgs?.length || 0} orgs</span>
+          {/* Connected accounts — read-only, configured via .env */}
+          {pats.length > 0 && (
+            <>
+              <h3>{t("settings.pats")}</h3>
+              <div className="pat-list">
+                {pats.map((pat) => (
+                  <div key={pat.id} className="pat-item">
+                    <div className="pat-item-left">
+                      {pat.user_avatar && (
+                        <img src={pat.user_avatar} alt={pat.user_login} className="pat-avatar" />
                       )}
-                      {pat.enterprise_slugs?.length > 0 && (
-                        <span className="pat-item-enterprise">
-                          {pat.enterprise_slugs.join(", ")}
-                        </span>
-                      )}
-                    </div>
-                    <div className="pat-item-meta">
-                      {pat.label} &middot; {pat.token_masked}
+                      <div className="pat-item-info">
+                        <div className="pat-item-user">
+                          <strong>{pat.user_login || "Validating..."}</strong>
+                          {(pat.orgs?.length > 0 || !pat.enterprise_slugs?.length) && (
+                            <span className="pat-item-orgs">{pat.orgs?.length || 0} orgs</span>
+                          )}
+                          {pat.enterprise_slugs?.length > 0 && (
+                            <span className="pat-item-enterprise">{pat.enterprise_slugs.join(", ")}</span>
+                          )}
+                        </div>
+                        <div className="pat-item-meta">{pat.label} &middot; {pat.token_masked}</div>
+                      </div>
                     </div>
                   </div>
-                </div>
-                <button
-                  className={`btn btn-small ${confirmDelete === pat.id ? "btn-danger" : "btn-ghost"}`}
-                  onClick={() => handleDelete(pat.id)}
-                >
-                  {confirmDelete === pat.id ? t("settings.patDeleteConfirm") : t("settings.patDelete")}
-                </button>
+                ))}
               </div>
-            ))}
-          </div>
-
-          <div className="pat-form">
-            <h4>{t("settings.addPat")}</h4>
-            <div className="pat-form-row">
-              <label>{t("settings.patLabel")}</label>
-              <input
-                type="text"
-                value={label}
-                onChange={(e) => setLabel(e.target.value)}
-                placeholder="e.g. Work PAT"
-                onKeyDown={handleKeyDown}
-              />
-            </div>
-            <div className="pat-form-row">
-              <label>{t("settings.patToken")}</label>
-              <input
-                type="password"
-                value={token}
-                onChange={(e) => setToken(e.target.value)}
-                placeholder="ghp_..."
-                onKeyDown={handleKeyDown}
-              />
-            </div>
-            <div className="pat-form-row">
-              <label title={t("settings.patEnterpriseHint")}>{t("settings.patEnterprise")} <span className="pat-label-hint">ℹ</span></label>
-              <input
-                type="text"
-                value={enterpriseSlug}
-                onChange={(e) => setEnterpriseSlug(e.target.value)}
-                placeholder="e.g. my-enterprise (github.com/enterprises/SLUG)"
-                onKeyDown={handleKeyDown}
-                title={t("settings.patEnterpriseHint")}
-              />
-            </div>
-            <p className="pat-form-hint pat-enterprise-hint">{t("settings.patEnterpriseHint")}</p>
-            <button
-              className="btn btn-primary"
-              onClick={handleAdd}
-              disabled={loading || !token.trim()}
-            >
-              {loading ? t("settings.patAdding") : t("settings.addPat")}
-            </button>
-            <p className="pat-form-hint">{t("settings.patHint")}</p>
-          </div>
+              <p className="pat-form-hint">
+                Cấu hình GitHub PAT qua biến môi trường <code>GITHUB_PAT</code> trong file <code>.env</code>.
+              </p>
+            </>
+          )}
 
           {/* Sync Settings */}
           <div className="sync-settings">
