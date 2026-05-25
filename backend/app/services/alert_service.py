@@ -15,8 +15,6 @@ from __future__ import annotations
 from datetime import datetime, timezone
 from typing import TYPE_CHECKING
 
-from .. import services as _services_pkg
-
 if TYPE_CHECKING:
     from .data_collector import DataCollector
 

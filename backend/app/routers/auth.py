@@ -5,21 +5,17 @@ Supports two roles:
   - manager: read-only access scoped to their assigned user groups
 
 Credentials are stored in the SQLite database (app_users table).
-Existing single-user auth.json is migrated automatically on first startup.
 """
 
 from __future__ import annotations
 
 import hashlib
-import json
 import os
 import secrets
-from pathlib import Path
 
 from fastapi import APIRouter, Cookie, Request, Response
 from pydantic import BaseModel
 
-from ..config import DATA_DIR
 from ..services import database as db_module
 
 router = APIRouter(prefix="/auth", tags=["auth"])
@@ -27,8 +23,6 @@ router = APIRouter(prefix="/auth", tags=["auth"])
 # ---------------------------------------------------------------------------
 # Internal helpers
 # ---------------------------------------------------------------------------
-
-_AUTH_FILE = DATA_DIR / "auth.json"
 
 # In-memory session tokens → user info (cleared on server restart)
 _active_sessions: dict[str, dict] = {}
@@ -44,24 +38,6 @@ def _hash_password(password: str, salt: bytes) -> str:
 def _verify_password(password: str, stored_hash: str, salt_hex: str) -> bool:
     salt = bytes.fromhex(salt_hex)
     return _hash_password(password, salt) == stored_hash
-
-
-def _migrate_auth_json():
-    """One-time migration: import auth.json admin into app_users table."""
-    db = db_module.db
-    if db is None or not _AUTH_FILE.exists():
-        return
-    if db.app_user_exists():
-        return  # already migrated
-    try:
-        data = json.loads(_AUTH_FILE.read_text(encoding="utf-8"))
-        username = data.get("username", "admin")
-        password_hash = data.get("password_hash", "")
-        salt = data.get("salt", "")
-        db.create_app_user(username, password_hash, salt, role="super_admin")
-        print(f"[Auth] Migrated admin '{username}' from auth.json to database")
-    except Exception as e:
-        print(f"[Auth] Migration warning: {e}")
 
 
 def is_authenticated(session_token: str | None) -> bool:
@@ -80,9 +56,7 @@ def _setup_required() -> bool:
     """Return True if no users exist yet."""
     db = db_module.db
     if db is None:
-        # DB not ready yet — fall back to file check
-        return not _AUTH_FILE.exists()
-    _migrate_auth_json()
+        return True
     return not db.app_user_exists()
 
 
@@ -157,20 +131,13 @@ async def auth_setup(params: SetupParams, response: Response):
     if not params.username.strip() or not params.password.strip():
         return {"error": "Username and password are required."}
 
+    db = db_module.db
+    if db is None:
+        return {"error": "Database not ready."}
+
     salt = os.urandom(32)
     password_hash = _hash_password(params.password, salt)
-
-    db = db_module.db
-    if db:
-        db.create_app_user(params.username.strip(), password_hash, salt.hex(), role="super_admin")
-    else:
-        # DB not ready — fall back to file (edge case during very early startup)
-        import json as _json
-        _AUTH_FILE.write_text(_json.dumps({
-            "username": params.username.strip(),
-            "password_hash": password_hash,
-            "salt": salt.hex(),
-        }, indent=2))
+    db.create_app_user(params.username.strip(), password_hash, salt.hex(), role="super_admin")
 
     user_info = {"username": params.username.strip(), "role": "super_admin"}
     token = secrets.token_hex(32)

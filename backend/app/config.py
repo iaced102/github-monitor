@@ -1,7 +1,7 @@
 """
 Configuration management.
-PATs are managed at runtime via the web UI and stored in data/pats.json.
 All org/enterprise info is auto-discovered via GitHub API.
+PAT token and sync settings are configured via environment variables.
 """
 
 from pathlib import Path
@@ -40,10 +40,7 @@ class AppConfig:
         self.github_api_base: str = "https://api.github.com"
         self.data_dir: Path = DATA_DIR
         self.db_path: Path = DATA_DIR / "octofinance.db"
-        # Ensure data directories exist
         self.data_dir.mkdir(parents=True, exist_ok=True)
-        for sub in ("seats", "usage", "usage_users", "metrics", "billing", "premium_requests", "premium_usage_csv"):
-            (self.data_dir / sub).mkdir(parents=True, exist_ok=True)
 
 
 # Global config instance

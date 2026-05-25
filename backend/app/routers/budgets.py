@@ -8,7 +8,6 @@ from __future__ import annotations
 from fastapi import APIRouter
 
 from ..services import database as db_module
-from ..services.api_manager import api_manager
 from ..services.data_collector import data_collector
 
 router = APIRouter(prefix="/budgets", tags=["budgets"])
