@@ -12,7 +12,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 
-from .routers import actions, auth, chat, data, pats, sessions, sync
+from .routers import actions, auth, chat, data, sessions, sync
 from .routers.alerts import router as alerts_router
 from .routers.budgets import router as budgets_router
 from .routers.groups import router as groups_router
@@ -133,7 +133,6 @@ app.include_router(sessions.router, prefix="/api")
 app.include_router(sync.router, prefix="/api")
 app.include_router(data.router, prefix="/api")
 app.include_router(actions.router, prefix="/api")
-app.include_router(pats.router, prefix="/api")
 app.include_router(alerts_router, prefix="/api")
 app.include_router(budgets_router, prefix="/api")
 app.include_router(groups_router, prefix="/api")

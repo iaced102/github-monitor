@@ -78,25 +78,6 @@ const translations = {
     "sessions.delete": "Delete",
     "sessions.empty": "No sessions yet",
 
-    // Settings
-    "settings.title": "Settings",
-    "settings.pats": "GitHub Personal Access Tokens",
-    "settings.addPat": "Add PAT",
-    "settings.patLabel": "Label",
-    "settings.patToken": "Token",
-    "settings.patAdding": "Adding...",
-    "settings.patDelete": "Delete",
-    "settings.patDeleteConfirm": "Remove this PAT?",
-    "settings.noPats": "No PATs configured. Add one to get started.",
-    "settings.patEnterprise": "Enterprise Slug",
-    "settings.patEnterpriseHint": "Optional. Find in your enterprise URL: github.com/enterprises/YOUR-SLUG. Required for Cost Center management.",
-    "settings.patHint": "Adding a PAT will auto-discover orgs and sync data.",
-    "settings.patError": "Error",
-    "settings.syncSettings": "Sync Settings",
-    "settings.autoSync": "Auto sync on startup",
-    "settings.syncCron": "Scheduled sync",
-    "settings.cronHint": "Use cron syntax: */30 * * * * (every 30min), 0 */6 * * * (every 6h), 0 0 * * * (daily). Leave empty to disable.",
-
     // Navigation
     "nav.chat": "Chat",
     "nav.dashboard": "Dashboard",
@@ -511,25 +492,6 @@ const translations = {
     "sessions.delete": "\u5220\u9664",
     "sessions.empty": "\u6682\u65e0\u4f1a\u8bdd",
 
-    // Settings
-    "settings.title": "\u8bbe\u7f6e",
-    "settings.pats": "GitHub \u4e2a\u4eba\u8bbf\u95ee\u4ee4\u724c",
-    "settings.addPat": "\u6dfb\u52a0\u4ee4\u724c",
-    "settings.patLabel": "\u6807\u7b7e",
-    "settings.patToken": "\u4ee4\u724c",
-    "settings.patAdding": "\u6dfb\u52a0\u4e2d...",
-    "settings.patDelete": "\u5220\u9664",
-    "settings.patDeleteConfirm": "\u786e\u8ba4\u79fb\u9664\u6b64\u4ee4\u724c\uff1f",
-    "settings.noPats": "\u672a\u914d\u7f6e\u4ee4\u724c\u3002\u8bf7\u6dfb\u52a0\u4e00\u4e2a\u4ee5\u5f00\u59cb\u4f7f\u7528\u3002",
-    "settings.patEnterprise": "Enterprise Slug",
-    "settings.patEnterpriseHint": "\u53ef\u9009\u3002\u5728\u4f01\u4e1a URL \u4e2d\u67e5\u627e\uff1a github.com/enterprises/YOUR-SLUG\u3002Cost Center \u7ba1\u7406\u6240\u9700\u3002",
-    "settings.patHint": "\u6dfb\u52a0\u4ee4\u724c\u540e\u5c06\u81ea\u52a8\u53d1\u73b0\u7ec4\u7ec7\u5e76\u540c\u6b65\u6570\u636e\u3002",
-    "settings.patError": "\u9519\u8bef",
-    "settings.syncSettings": "\u540c\u6b65\u8bbe\u7f6e",
-    "settings.autoSync": "\u542f\u52a8\u65f6\u81ea\u52a8\u540c\u6b65",
-    "settings.syncCron": "\u5b9a\u65f6\u540c\u6b65",
-    "settings.cronHint": "Cron \u8bed\u6cd5\uff1a*/30 * * * *\uff08\u6bcf30\u5206\u949f\uff09\u3001 0 */6 * * *\uff08\u6bcf6\u5c0f\u65f6\uff09\u3001 0 0 * * *\uff08\u6bcf\u5929\uff09\u3002\u7559\u7a7a\u5219\u7981\u7528\u3002",
-
     // Navigation
     "nav.chat": "\u5bf9\u8bdd",
     "nav.dashboard": "\u6570\u636e\u9762\u677f",
@@ -939,25 +901,6 @@ const translations = {
     "sessions.new": "Phiên mới",
     "sessions.delete": "Xóa",
     "sessions.empty": "Chưa có phiên",
-
-    // Settings
-    "settings.title": "Cài đặt",
-    "settings.pats": "Token truy cập cá nhân GitHub",
-    "settings.addPat": "Thêm PAT",
-    "settings.patLabel": "Nhãn",
-    "settings.patToken": "Token",
-    "settings.patAdding": "Đang thêm...",
-    "settings.patDelete": "Xóa",
-    "settings.patDeleteConfirm": "Xóa PAT này?",
-    "settings.noPats": "Chưa cấu hình PAT. Thêm một PAT để bắt đầu.",
-    "settings.patEnterprise": "Enterprise Slug",
-    "settings.patEnterpriseHint": "Tùy chọn. Tìm trong URL: github.com/enterprises/YOUR-SLUG. Cần thiết để quản lý Cost Center.",
-    "settings.patHint": "Thêm PAT sẽ tự động khám phá tổ chức và đồng bộ dữ liệu.",
-    "settings.patError": "Lỗi",
-    "settings.syncSettings": "Cài đặt đồng bộ",
-    "settings.autoSync": "Tự động đồng bộ khi khởi động",
-    "settings.syncCron": "Đồng bộ theo lịch",
-    "settings.cronHint": "Cú pháp cron: */30 * * * * (mỗi 30 phút), 0 */6 * * * (mỗi 6 giờ), 0 0 * * * (hàng ngày). Để trống để tắt.",
 
     // Navigation
     "nav.chat": "Trò chuyện",

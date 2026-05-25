@@ -5,8 +5,6 @@ PATs and app settings are stored in data/pats.json.
 
 import json
 import os
-import uuid
-from datetime import datetime, timezone
 from pathlib import Path
 
 from ..config import DATA_DIR
@@ -128,13 +126,7 @@ class PATManager:
         merged = {**self._settings, **_settings_from_env()}
         return merged
 
-    def update_settings(self, **kwargs) -> dict:
-        """Update settings and persist. Returns the updated settings."""
-        for key in DEFAULT_SETTINGS:
-            if key in kwargs:
-                self._settings[key] = kwargs[key]
-        self._save()
-        return {**self._settings}
+
 
     def get_all(self) -> list[dict]:
         """Return all PATs. If GITHUB_PAT env is set, returns only the env PAT."""
@@ -143,19 +135,7 @@ class PATManager:
             return [env_pat]
         return list(self._pats)
 
-    def get_all_masked(self) -> list[dict]:
-        """Return all PATs with tokens masked for API responses."""
-        result = []
-        for p in self.get_all():
-            masked = {**p}
-            token = masked.get("token", "")
-            if len(token) > 8:
-                masked["token_masked"] = token[:4] + "***" + token[-4:]
-            else:
-                masked["token_masked"] = "***"
-            del masked["token"]
-            result.append(masked)
-        return result
+
 
     def get_token(self, pat_id: str) -> str | None:
         """Get the raw token for a PAT ID. If GITHUB_PAT env is set, always returns it."""
@@ -166,28 +146,6 @@ class PATManager:
             if p["id"] == pat_id:
                 return p["token"]
         return None
-
-    def add(self, label: str, token: str, enterprise_slugs: list[str] | None = None) -> dict:
-        """Add a new PAT entry. Returns the new PAT dict (with token)."""
-        # Check for duplicate tokens
-        for p in self._pats:
-            if p["token"] == token:
-                raise ValueError(f"This token is already configured as '{p['label']}'")
-
-        pat = {
-            "id": f"pat_{uuid.uuid4().hex[:8]}",
-            "label": label or "Untitled",
-            "token": token,
-            "user_login": "",
-            "user_avatar": "",
-            "orgs": [],
-            "enterprise_slugs": enterprise_slugs or [],
-            "created_at": datetime.now(timezone.utc).isoformat(),
-            "last_synced_at": "",
-        }
-        self._pats.append(pat)
-        self._save()
-        return pat
 
     def update(self, pat_id: str, **kwargs) -> dict | None:
         """Update a PAT's metadata (label, user_login, orgs, etc.)."""
@@ -206,15 +164,6 @@ class PATManager:
                 self._save()
                 return p
         return None
-
-    def remove(self, pat_id: str) -> bool:
-        """Remove a PAT by ID. Returns True if found and removed."""
-        before = len(self._pats)
-        self._pats = [p for p in self._pats if p["id"] != pat_id]
-        if len(self._pats) < before:
-            self._save()
-            return True
-        return False
 
     def find_by_id(self, pat_id: str) -> dict | None:
         """Find a PAT by ID. If GITHUB_PAT env is set, returns it for any ID."""

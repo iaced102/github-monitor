@@ -7,7 +7,6 @@ import { useI18n } from "../contexts/I18nContext";
 interface Props {
   consoleOpen: boolean;
   onToggleConsole: () => void;
-  onPATChange?: () => void;
   syncing?: boolean;
   currentView: "chat" | "dashboard";
   onViewChange: (view: "chat" | "dashboard") => void;
@@ -17,7 +16,7 @@ interface Props {
   onToggleSidebar?: () => void;
 }
 
-export function StatusBar({ consoleOpen, onToggleConsole, onPATChange: _onPATChange, syncing = false, currentView, onViewChange, onLogout, alertBadge, sidebarOpen, onToggleSidebar }: Props) {
+export function StatusBar({ consoleOpen, onToggleConsole, syncing = false, currentView, onViewChange, onLogout, alertBadge, sidebarOpen, onToggleSidebar }: Props) {
   const { sync } = useSync();
   const { theme, toggleTheme } = useTheme();
   const { lang, toggleLang, t } = useI18n();

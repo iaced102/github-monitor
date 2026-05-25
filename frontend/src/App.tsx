@@ -231,10 +231,6 @@ function AppLayout({ onLogout }: { onLogout: () => void }) {
 
   const toggleConsole = useCallback(() => ui.patch({ consoleOpen: !ui.consoleOpen }), [ui.patch, ui.consoleOpen]);
 
-  const handlePATChange = useCallback(() => {
-    setRefreshKey((k) => k + 1);
-  }, []);
-
   return (
     <div className="app">
       {/* Mobile notice overlay (shown on screens ≤ 600px unless dismissed) */}
@@ -251,7 +247,6 @@ function AppLayout({ onLogout }: { onLogout: () => void }) {
       <StatusBar
         consoleOpen={consoleOpen}
         onToggleConsole={toggleConsole}
-        onPATChange={handlePATChange}
         syncing={syncing}
         currentView={currentView}
         onViewChange={setCurrentView}
