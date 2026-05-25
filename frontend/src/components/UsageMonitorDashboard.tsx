@@ -162,11 +162,16 @@ export function UsageMonitorDashboard({ refreshKey: _refreshKey, selectedOrgs }:
               <div className="stat-label">{t("monitor.activeUsers")}</div>
             </div>
           </div>
-          {kpi.report_start && kpi.report_end && (
-            <div style={{ fontSize: 11, color: "var(--text-muted)", marginTop: 6, paddingLeft: 2 }}>
-              📅 Kỳ báo cáo: {kpi.report_start} → {kpi.report_end} (28 ngày)
-            </div>
-          )}
+          {kpi.report_start && kpi.report_end && (() => {
+            const start = new Date(kpi.report_start);
+            const end = new Date(kpi.report_end);
+            const diffDays = Math.round((end.getTime() - start.getTime()) / (1000 * 60 * 60 * 24)) + 1;
+            return (
+              <div style={{ fontSize: 11, color: "var(--text-muted)", marginTop: 6, paddingLeft: 2 }}>
+                📅 Kỳ báo cáo: {kpi.report_start} → {kpi.report_end} ({diffDays} ngày)
+              </div>
+            );
+          })()}
         </div>
       </div>
 

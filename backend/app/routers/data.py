@@ -551,7 +551,7 @@ async def get_dashboard(request: Request, orgs: str = Query(default=""), group_i
     daily_trend = sorted(daily_map.values(), key=lambda x: x["day"])
 
     feature_usage = [{"feature": k, **v} for k, v in sorted(feature_map.items(), key=lambda x: -x[1]["interactions"])]
-    model_usage = [{"model": k, **v} for k, v in sorted(model_map.items(), key=lambda x: -x[1]["interactions"])]
+    model_usage = [{"model": k, **v} for k, v in sorted(model_map.items(), key=lambda x: -x[1]["interactions"]) if v["interactions"] + v["code_gen"] > 0]
     ide_usage = [{"ide": k, **v} for k, v in sorted(ide_map.items(), key=lambda x: -x[1]["interactions"])]
     language_usage = [{"language": k, **v} for k, v in sorted(lang_map.items(), key=lambda x: -x[1]["code_gen"])]
 
@@ -837,7 +837,7 @@ def _build_api_premium_section(scope_users: set[str] | None = None) -> dict:
             [{"model": k, "gross_qty": v["interactions"] + v["code_gen"],
               "net_qty": v["code_accept"], "gross_amount": 0.0, "net_amount": 0.0,
               "interactions": v["interactions"], "code_gen": v["code_gen"], "code_accept": v["code_accept"]}
-             for k, v in activity_model_map.items()],
+             for k, v in activity_model_map.items() if v["interactions"] + v["code_gen"] > 0],
             key=lambda x: -x["gross_qty"],
         )
         return {
@@ -2073,7 +2073,7 @@ async def get_usage_monitor(
 
     # ── serialise ─────────────────────────────────────────────────────────────
     model_totals_list = sorted(
-        [{"model": m, **v} for m, v in model_totals.items()],
+        [{"model": m, **v} for m, v in model_totals.items() if v["interactions"] + v["code_gen"] > 0],
         key=lambda x: -(x["interactions"] + x["code_gen"]),
     )
 
@@ -2098,8 +2098,8 @@ async def get_usage_monitor(
             entry[f"{safe_key}_codegen"] = vals["code_gen"]
         daily_trend.append(entry)
 
-    # get all unique model names (used as chart series keys)
-    all_models = sorted(model_totals.keys())
+    # get all unique model names (used as chart series keys) — only models with actual activity
+    all_models = sorted(m for m, v in model_totals.items() if v["interactions"] + v["code_gen"] > 0)
 
     # date range for period label
     report_days = sorted(daily_model.keys())
@@ -2131,7 +2131,7 @@ async def get_usage_monitor(
     total_interactions = sum(v["interactions"] for v in model_totals.values())
     total_code_gen = sum(v["code_gen"] for v in model_totals.values())
     top_model = model_totals_list[0]["model"] if model_totals_list else "—"
-    unique_models = len(model_totals)
+    unique_models = len(model_totals_list)
     active_users = len(user_model)
 
     return {
