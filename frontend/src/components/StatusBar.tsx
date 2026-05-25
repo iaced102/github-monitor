@@ -3,7 +3,6 @@ import type React from "react";
 import { useSync, useCsvInfo } from "../hooks/useData";
 import { useTheme } from "../contexts/ThemeContext";
 import { useI18n } from "../contexts/I18nContext";
-import { PATSettingsModal } from "./PATSettingsModal";
 
 interface Props {
   consoleOpen: boolean;
@@ -18,11 +17,10 @@ interface Props {
   onToggleSidebar?: () => void;
 }
 
-export function StatusBar({ consoleOpen, onToggleConsole, onPATChange, syncing = false, currentView, onViewChange, onLogout, alertBadge, sidebarOpen, onToggleSidebar }: Props) {
+export function StatusBar({ consoleOpen, onToggleConsole, onPATChange: _onPATChange, syncing = false, currentView, onViewChange, onLogout, alertBadge, sidebarOpen, onToggleSidebar }: Props) {
   const { sync } = useSync();
   const { theme, toggleTheme } = useTheme();
   const { lang, toggleLang, t } = useI18n();
-  const [settingsOpen, setSettingsOpen] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const { info: csvInfo, uploadCsv } = useCsvInfo();
   const [csvUploading, setCsvUploading] = useState(false);
@@ -46,11 +44,6 @@ export function StatusBar({ consoleOpen, onToggleConsole, onPATChange, syncing =
   useEffect(() => {
     fetchHealth();
   }, [fetchHealth]);
-
-  const handlePATChange = () => {
-    fetchHealth();
-    onPATChange?.();
-  };
 
   const handleSync = () => {
     if (!syncing) {
@@ -135,13 +128,6 @@ export function StatusBar({ consoleOpen, onToggleConsole, onPATChange, syncing =
         </div>
         {alertBadge}
         <button
-          className="btn btn-small btn-toggle"
-          onClick={() => setSettingsOpen(true)}
-          title={t("settings.title")}
-        >
-          {t("settings.title")}
-        </button>
-        <button
           className={`btn btn-small btn-toggle ${consoleOpen ? "btn-toggle-active" : ""}`}
           onClick={onToggleConsole}
           title={t("console.title")}
@@ -190,9 +176,6 @@ export function StatusBar({ consoleOpen, onToggleConsole, onPATChange, syncing =
           {t("auth.logout")}
         </button>
       </div>
-      {settingsOpen && (
-        <PATSettingsModal onClose={() => setSettingsOpen(false)} onPATChange={handlePATChange} />
-      )}
     </div>
   );
 }

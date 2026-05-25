@@ -20,6 +20,20 @@ DEFAULT_SETTINGS = {
 }
 
 
+def _settings_from_env() -> dict:
+    """Read sync settings from environment variables (override file-based settings)."""
+    result = {}
+    env_auto_sync = os.environ.get("AUTO_SYNC_ON_STARTUP", "").strip().lower()
+    if env_auto_sync in ("true", "false", "1", "0"):
+        result["auto_sync_on_startup"] = env_auto_sync in ("true", "1")
+    env_cron = os.environ.get("SYNC_CRON", "").strip()
+    if env_cron or env_cron == "":
+        # Only override if explicitly set (non-empty or explicitly empty string via "off"/"none")
+        if "SYNC_CRON" in os.environ:
+            result["sync_cron"] = "" if env_cron.lower() in ("off", "none") else env_cron
+    return result
+
+
 class PATManager:
     """Manages GitHub PAT persistence and app settings in data/pats.json."""
 
@@ -97,8 +111,9 @@ class PATManager:
     # ------------------------------------------------------------------
 
     def get_settings(self) -> dict:
-        """Return a copy of the current settings."""
-        return {**self._settings}
+        """Return settings, with env vars taking priority over file-based settings."""
+        merged = {**self._settings, **_settings_from_env()}
+        return merged
 
     def update_settings(self, **kwargs) -> dict:
         """Update settings and persist. Returns the updated settings."""
