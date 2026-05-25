@@ -86,6 +86,41 @@ def _setup_required() -> bool:
     return not db.app_user_exists()
 
 
+def seed_user_setup():
+    """Auto-create or update the seed admin user from environment variables.
+
+    Reads SEED_USER_ENABLED, SEED_USER_USERNAME, SEED_USER_PASSWORD.
+    If enabled, upserts the user with super_admin role on every startup so
+    that container deployments never need to go through the setup UI.
+    """
+    if os.environ.get("SEED_USER_ENABLED", "false").lower() != "true":
+        return
+
+    username = os.environ.get("SEED_USER_USERNAME", "").strip()
+    password = os.environ.get("SEED_USER_PASSWORD", "").strip()
+
+    if not username or not password:
+        print("[Auth] SEED_USER_ENABLED=true but USERNAME or PASSWORD is empty — skipping")
+        return
+
+    db = db_module.db
+    if db is None:
+        print("[Auth] Seed user setup skipped — database not ready")
+        return
+
+    salt = os.urandom(32)
+    password_hash = _hash_password(password, salt)
+
+    existing = db.get_app_user(username)
+    if existing:
+        db.update_app_user_password(username, password_hash, salt.hex())
+        db.update_app_user_role(username, "super_admin")
+        print(f"[Auth] Seed user '{username}' updated (super_admin)")
+    else:
+        db.create_app_user(username, password_hash, salt.hex(), role="super_admin")
+        print(f"[Auth] Seed user '{username}' created (super_admin)")
+
+
 # ---------------------------------------------------------------------------
 # Param models
 # ---------------------------------------------------------------------------

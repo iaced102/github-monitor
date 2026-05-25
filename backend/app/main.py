@@ -17,7 +17,7 @@ from .routers.alerts import router as alerts_router
 from .routers.budgets import router as budgets_router
 from .routers.groups import router as groups_router
 from .routers.managers import router as managers_router, users_router
-from .routers.auth import AUTH_PUBLIC_PATHS, is_authenticated, get_current_user
+from .routers.auth import AUTH_PUBLIC_PATHS, is_authenticated, get_current_user, seed_user_setup
 from .services.api_manager import api_manager
 from .services.copilot_engine import copilot_engine
 from .services.data_collector import data_collector
@@ -46,6 +46,9 @@ async def lifespan(app: FastAPI):
         db.migrate_from_json_dir(config.data_dir)
     except Exception as e:
         print(f"[OctoFinance] Data migration warning: {e}")
+
+    # Apply seed user from environment (SEED_USER_ENABLED / USERNAME / PASSWORD)
+    seed_user_setup()
 
     # Load PATs from file (auto-migrates GITHUB_PAT env var if needed)
     pats_list = pat_manager.load()
