@@ -53,8 +53,8 @@ export function RoiDashboard({ refreshKey }: Props) {
             />
             <KpiCard
               label={t("roi.locAcceptance")}
-              value={`${data.kpi.loc_acceptance_rate ?? 0}%`}
-              sub={`${(data.kpi.total_loc_accepted ?? 0).toLocaleString()} ${t("roi.locAccepted")}`}
+              value={(data.kpi.total_loc_accepted ?? 0).toLocaleString()}
+              sub={t("roi.locAccepted")}
             />
             <KpiCard
               label={t("roi.activeUsers")}

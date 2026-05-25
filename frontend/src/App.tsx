@@ -73,7 +73,17 @@ function AppLayout({ onLogout }: { onLogout: () => void }) {
 
   const chat = useChat();
   const sessions = useSessions();
+  const { currentUser } = useCurrentUser();
+  const prevUsernameRef = useRef<string | null>(null);
   const initialLoadRef = useRef(false);
+
+  // Reset group scope when a different user logs in
+  useEffect(() => {
+    if (currentUser?.username && prevUsernameRef.current !== null && prevUsernameRef.current !== currentUser.username) {
+      ui.patch({ selectedGroupId: null, selectedGroupName: null });
+    }
+    prevUsernameRef.current = currentUser?.username ?? null;
+  }, [currentUser?.username]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // On mount, load messages for persisted session
   useEffect(() => {

@@ -475,6 +475,9 @@ async def get_dashboard(request: Request, orgs: str = Query(default=""), group_i
         model_map = defaultdict(lambda: {"interactions": 0, "code_gen": 0, "code_accept": 0, "loc_suggested": 0, "loc_accepted": 0})
         ide_map = defaultdict(lambda: {"interactions": 0, "code_gen": 0, "code_accept": 0, "loc_suggested": 0, "loc_accepted": 0})
         lang_map = defaultdict(lambda: {"code_gen": 0, "code_accept": 0, "loc_suggested": 0, "loc_accepted": 0})
+        # Preserve org-level date range as fallback in case no per-user records match
+        org_date_start = date_start
+        org_date_end = date_end
         date_start = ""
         date_end = ""
         for org_name in selected:
@@ -538,6 +541,12 @@ async def get_dashboard(request: Request, orgs: str = Query(default=""), group_i
                     lang_map[lang]["code_accept"] += lb.get("code_acceptance_activity_count", 0)
                     lang_map[lang]["loc_suggested"] += lb.get("loc_suggested_to_add_sum", 0) + lb.get("loc_suggested_to_delete_sum", 0)
                     lang_map[lang]["loc_accepted"] += lb.get("loc_added_sum", 0) + lb.get("loc_deleted_sum", 0)
+
+        # Fall back to org-level date range when no per-user data matched
+        if not date_start:
+            date_start = org_date_start
+        if not date_end:
+            date_end = org_date_end
 
     daily_trend = sorted(daily_map.values(), key=lambda x: x["day"])
 

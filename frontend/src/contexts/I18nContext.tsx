@@ -402,11 +402,11 @@ const translations = {
 
     // ROI Dashboard
     "roi.acceptanceRate": "Acceptance Rate",
-    "roi.locAcceptance": "LOC Acceptance",
+    "roi.locAcceptance": "LOC Adopted",
     "roi.activeUsers": "Active Users",
     "roi.costPerUser": "Cost / Active User",
     "roi.ofSeats": "of {n} seats",
-    "roi.locAccepted": "LOC accepted",
+    "roi.locAccepted": "lines of code from Copilot",
     "roi.totalPerMonth": "total/mo",
     "roi.trendTitle": "Acceptance Rate Trend",
     "roi.dailyActivity": "Daily Activity",
@@ -812,11 +812,11 @@ const translations = {
 
     // ROI Dashboard
     "roi.acceptanceRate": "接受率",
-    "roi.locAcceptance": "LOC 接受率",
+    "roi.locAcceptance": "采用的LOC",
     "roi.activeUsers": "活跃用户",
     "roi.costPerUser": "每活跃用户成本",
     "roi.ofSeats": "/ {n} 席位",
-    "roi.locAccepted": "LOC 已接受",
+    "roi.locAccepted": "来自 Copilot 的代码行数",
     "roi.totalPerMonth": "总计/月",
     "roi.trendTitle": "接受率趋势",
     "roi.dailyActivity": "每日活动",
@@ -1222,11 +1222,11 @@ const translations = {
 
     // ROI Dashboard
     "roi.acceptanceRate": "Tỷ lệ chấp nhận",
-    "roi.locAcceptance": "LOC Chấp nhận",
+    "roi.locAcceptance": "LOC từ Copilot",
     "roi.activeUsers": "Người dùng hoạt động",
     "roi.costPerUser": "Chi phí / Người dùng",
     "roi.ofSeats": "/ {n} ghế",
-    "roi.locAccepted": "LOC đã chấp nhận",
+    "roi.locAccepted": "dòng code từ Copilot",
     "roi.totalPerMonth": "tổng/tháng",
     "roi.trendTitle": "Xu hướng tỷ lệ chấp nhận",
     "roi.dailyActivity": "Hoạt động hàng ngày",
