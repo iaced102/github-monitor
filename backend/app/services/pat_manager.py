@@ -75,36 +75,49 @@ class PATManager:
             self._pats = []
             self._settings = {**DEFAULT_SETTINGS}
 
-        # Auto-migrate GITHUB_PAT env var if no PATs configured
-        env_pat = os.environ.get("GITHUB_PAT", "").strip()
-        if not self._pats and env_pat:
-            migrated = {
-                "id": f"pat_{uuid.uuid4().hex[:8]}",
-                "label": "Migrated from GITHUB_PAT env",
-                "token": env_pat,
-                "user_login": "",
-                "user_avatar": "",
-                "orgs": [],
-                "created_at": datetime.now(timezone.utc).isoformat(),
-                "last_synced_at": "",
-            }
-            self._pats.append(migrated)
-            self._save()
-            print(f"[PATManager] Auto-migrated GITHUB_PAT env var as PAT '{migrated['id']}'")
+        # If GITHUB_PAT env var is set, it is the sole source of truth.
+        # Ignore any PATs persisted in the file.
+        if os.environ.get("GITHUB_PAT", "").strip():
+            self._pats = []
+            print("[PATManager] GITHUB_PAT env var is set — using env as source of truth, ignoring pats.json PATs")
 
         return self._pats
 
     def _save(self):
-        """Write PATs and settings to file."""
+        """Write settings (and any non-env PATs) to file."""
         PATS_FILE.parent.mkdir(parents=True, exist_ok=True)
+        # When env PAT is active, don't persist PATs to file (env is source of truth)
+        pats_to_save = [] if os.environ.get("GITHUB_PAT", "").strip() else self._pats
         data = {
-            "pats": self._pats,
+            "pats": pats_to_save,
             "settings": self._settings,
         }
         PATS_FILE.write_text(
             json.dumps(data, indent=2, default=str),
             encoding="utf-8",
         )
+
+    def _get_env_pat(self) -> dict | None:
+        """Build a synthetic PAT dict from GITHUB_PAT env var, or None if not set."""
+        token = os.environ.get("GITHUB_PAT", "").strip()
+        if not token:
+            return None
+        # Return cached env_pat (with any in-memory metadata updates)
+        if not hasattr(self, "_env_pat_meta"):
+            # Read optional enterprise slugs from env
+            env_slug = os.environ.get("ENTERPRISE_SLUG", "").strip()
+            enterprise_slugs = [s.strip() for s in env_slug.split(",") if s.strip()] if env_slug else []
+            self._env_pat_meta: dict = {
+                "id": "env_pat",
+                "label": "GITHUB_PAT (.env)",
+                "user_login": "",
+                "user_avatar": "",
+                "orgs": [],
+                "enterprise_slugs": enterprise_slugs,
+                "created_at": "",
+                "last_synced_at": "",
+            }
+        return {**self._env_pat_meta, "token": token}
 
     # ------------------------------------------------------------------
     # Settings
@@ -124,13 +137,16 @@ class PATManager:
         return {**self._settings}
 
     def get_all(self) -> list[dict]:
-        """Return all PATs (raw, with tokens)."""
+        """Return all PATs. If GITHUB_PAT env is set, returns only the env PAT."""
+        env_pat = self._get_env_pat()
+        if env_pat:
+            return [env_pat]
         return list(self._pats)
 
     def get_all_masked(self) -> list[dict]:
         """Return all PATs with tokens masked for API responses."""
         result = []
-        for p in self._pats:
+        for p in self.get_all():
             masked = {**p}
             token = masked.get("token", "")
             if len(token) > 8:
@@ -142,7 +158,10 @@ class PATManager:
         return result
 
     def get_token(self, pat_id: str) -> str | None:
-        """Get the raw token for a PAT ID."""
+        """Get the raw token for a PAT ID. If GITHUB_PAT env is set, always returns it."""
+        env_pat = self._get_env_pat()
+        if env_pat:
+            return env_pat["token"]
         for p in self._pats:
             if p["id"] == pat_id:
                 return p["token"]
@@ -172,6 +191,13 @@ class PATManager:
 
     def update(self, pat_id: str, **kwargs) -> dict | None:
         """Update a PAT's metadata (label, user_login, orgs, etc.)."""
+        env_pat = self._get_env_pat()
+        if env_pat:
+            # Update in-memory metadata for the env PAT (never persisted)
+            for key, value in kwargs.items():
+                if key not in ("id", "token"):
+                    self._env_pat_meta[key] = value
+            return self._get_env_pat()
         for p in self._pats:
             if p["id"] == pat_id:
                 for key, value in kwargs.items():
@@ -191,7 +217,10 @@ class PATManager:
         return False
 
     def find_by_id(self, pat_id: str) -> dict | None:
-        """Find a PAT by ID."""
+        """Find a PAT by ID. If GITHUB_PAT env is set, returns it for any ID."""
+        env_pat = self._get_env_pat()
+        if env_pat:
+            return env_pat
         for p in self._pats:
             if p["id"] == pat_id:
                 return p

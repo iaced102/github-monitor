@@ -50,8 +50,9 @@ async def lifespan(app: FastAPI):
     # Apply seed user from environment (SEED_USER_ENABLED / USERNAME / PASSWORD)
     seed_user_setup()
 
-    # Load PATs from file (auto-migrates GITHUB_PAT env var if needed)
-    pats_list = pat_manager.load()
+    # Load PATs from file, then get effective list (includes env PAT if set)
+    pat_manager.load()
+    pats_list = pat_manager.get_all()
     print(f"[OctoFinance] Loaded {len(pats_list)} PAT(s)")
 
     # Wire up api_manager and data_collector to services that need them
