@@ -127,6 +127,15 @@ class GetUserActivityTimelineParams(BaseModel):
     org: str = Field(default="", description="Organization name. Leave empty for all orgs.")
 
 
+class GetAicUsageParams(BaseModel):
+    org: str = Field(default="", description="Organization name. Leave empty for all orgs.")
+    user: str = Field(default="", description="Username to filter. Leave empty for all users.")
+
+
+class GetAicPoolStatusParams(BaseModel):
+    org: str = Field(default="", description="Organization name. Leave empty for all orgs.")
+
+
 class GetDormantUsersParams(BaseModel):
     org: str = Field(default="", description="Organization name. Leave empty for all orgs.")
     split_day: str = Field(
@@ -1036,6 +1045,211 @@ def create_usage_tools(
             "never_used_seats": sorted(never_used, key=lambda x: x.get("seat_created_at", "")),
         })
 
+    @define_tool(
+        description=(
+            "Get GitHub AI Credits (AIC) consumption from usage report data. "
+            "New billing model effective June 1, 2026: 1 AIC = $0.01 USD. "
+            "Aggregates aic_quantity (credits consumed) and aic_gross_amount (USD cost) "
+            "per user from the 28-day usage reports. Shows top consumers and org totals. "
+            "Use this instead of premium request usage analysis for billing after June 1, 2026."
+        )
+    )
+    def get_aic_usage(params: GetAicUsageParams) -> str:
+        from collections import defaultdict
+        if params.org:
+            raw = collector.load_latest("usage_users", params.org)
+            all_raw = {params.org: raw} if raw else {}
+        else:
+            all_raw = collector.load_all_latest("usage_users")
+
+        if not all_raw:
+            return json.dumps({"error": "No user usage data found. Try fetch_org_users_usage_report to get live data."})
+
+        user_agg: dict[str, dict] = defaultdict(lambda: {
+            "aic_quantity": 0.0, "aic_gross_amount": 0.0,
+            "days_active": 0, "org": "",
+        })
+        org_agg: dict[str, dict] = defaultdict(lambda: {
+            "aic_quantity": 0.0, "aic_gross_amount": 0.0, "users": set(),
+        })
+        report_period: dict = {}
+
+        for org, data in all_raw.items():
+            records = data.get("records", data) if isinstance(data, dict) else data
+            if not isinstance(records, list):
+                continue
+            if not report_period and isinstance(data, dict):
+                report_period = {
+                    "start": data.get("report_start_day", ""),
+                    "end": data.get("report_end_day", ""),
+                }
+            for r in records:
+                login = r.get("user_login", "")
+                if not login:
+                    continue
+                if params.user and login != params.user:
+                    continue
+                aic_q = float(r.get("aic_quantity") or 0)
+                aic_a = float(r.get("aic_gross_amount") or 0)
+                if aic_q == 0 and aic_a == 0:
+                    continue
+                u = user_agg[login]
+                u["aic_quantity"] += aic_q
+                u["aic_gross_amount"] += aic_a
+                u["days_active"] += 1
+                u["org"] = org
+                o = org_agg[org]
+                o["aic_quantity"] += aic_q
+                o["aic_gross_amount"] += aic_a
+                o["users"].add(login)
+
+        if not user_agg:
+            return json.dumps({
+                "warning": "No AIC data found in usage reports. AIC fields (aic_quantity, aic_gross_amount) "
+                           "are populated from Oct 10, 2025 onward. Ensure data has been synced.",
+                "report_period": report_period,
+            })
+
+        users_sorted = sorted(user_agg.items(), key=lambda x: -x[1]["aic_quantity"])
+        user_list = [
+            {
+                "user": login,
+                "org": v["org"],
+                "aic_quantity": round(v["aic_quantity"], 2),
+                "aic_gross_amount_usd": round(v["aic_gross_amount"], 4),
+                "days_active": v["days_active"],
+            }
+            for login, v in users_sorted
+        ]
+
+        orgs_summary = [
+            {
+                "org": org,
+                "total_aic_quantity": round(v["aic_quantity"], 2),
+                "total_aic_cost_usd": round(v["aic_gross_amount"], 4),
+                "unique_users": len(v["users"]),
+            }
+            for org, v in sorted(org_agg.items(), key=lambda x: -x[1]["aic_quantity"])
+        ]
+
+        grand_aic = sum(v["aic_quantity"] for v in org_agg.values())
+        grand_cost = sum(v["aic_gross_amount"] for v in org_agg.values())
+
+        return json.dumps({
+            "billing_model": "GitHub AI Credits (AIC) — effective June 1, 2026",
+            "aic_value": "1 AIC = $0.01 USD",
+            "report_period": report_period,
+            "summary": {
+                "total_aic_quantity": round(grand_aic, 2),
+                "total_aic_cost_usd": round(grand_cost, 4),
+                "total_users_with_aic_data": len(user_agg),
+            },
+            "by_org": orgs_summary,
+            "by_user": user_list,
+        }, default=str)
+
+    @define_tool(
+        description=(
+            "Calculate GitHub AI Credits (AIC) pool status for an org: total pool, "
+            "credits consumed, credits remaining, and utilization percentage. "
+            "Pool = seats × included credits/user/month. During promo period "
+            "(June 1 – Sep 1, 2026): Business 3,000/user, Enterprise 7,000/user. "
+            "Standard rates: Business 1,900/user, Enterprise 3,900/user. "
+            "1 AIC = $0.01 USD. Use this to predict overage risk before month-end."
+        )
+    )
+    def get_aic_pool_status(params: GetAicPoolStatusParams) -> str:
+        from datetime import datetime, timezone as tz
+        from ..config import (
+            AIC_INCLUDED_PER_USER, AIC_PROMO_PER_USER,
+            AIC_PROMO_START, AIC_PROMO_END, AIC_VALUE_USD,
+        )
+        from collections import defaultdict
+
+        now = datetime.now(tz.utc)
+        in_promo = AIC_PROMO_START <= now.strftime("%Y-%m-%d") < AIC_PROMO_END
+
+        orgs_to_check = [params.org] if params.org else list(collector.load_all_latest("seats").keys())
+        results = []
+
+        for org in orgs_to_check:
+            seats_data = collector.load_latest("seats", org)
+            billing = collector.load_latest("billing", org)
+            usage_data = collector.load_latest("usage_users", org)
+
+            if not seats_data and not billing:
+                continue
+
+            # Determine plan type and seat count
+            plan_type = "business"
+            total_seats = 0
+            if billing:
+                plan_type = billing.get("_detected_plan_type", "business")
+                total_seats = billing.get("seat_breakdown", {}).get("total", 0)
+            if total_seats == 0 and seats_data:
+                total_seats = seats_data.get("total_seats", len(seats_data.get("seats", [])))
+
+            # Credits included per user this month
+            rate_map = AIC_PROMO_PER_USER if in_promo else AIC_INCLUDED_PER_USER
+            credits_per_user = rate_map.get(plan_type, AIC_INCLUDED_PER_USER["business"])
+            pool_total = total_seats * credits_per_user
+
+            # Credits consumed from usage data
+            consumed = 0.0
+            cost_consumed = 0.0
+            if usage_data:
+                records = usage_data.get("records", usage_data) if isinstance(usage_data, dict) else usage_data
+                if isinstance(records, list):
+                    for r in records:
+                        consumed += float(r.get("aic_quantity") or 0)
+                        cost_consumed += float(r.get("aic_gross_amount") or 0)
+
+            remaining = max(0.0, pool_total - consumed)
+            util_pct = round(consumed / pool_total * 100, 1) if pool_total > 0 else 0.0
+            overage = max(0.0, consumed - pool_total)
+
+            results.append({
+                "org": org,
+                "plan_type": plan_type,
+                "total_seats": total_seats,
+                "billing_period": "monthly",
+                "promotional_period": in_promo,
+                "credits_per_user_per_month": credits_per_user,
+                "pool_total_aic": pool_total,
+                "pool_total_usd": round(pool_total * AIC_VALUE_USD, 2),
+                "consumed_aic": round(consumed, 2),
+                "consumed_usd": round(cost_consumed, 4),
+                "remaining_aic": round(remaining, 2),
+                "remaining_usd": round(remaining * AIC_VALUE_USD, 2),
+                "utilization_pct": util_pct,
+                "overage_aic": round(overage, 2),
+                "overage_cost_usd": round(overage * AIC_VALUE_USD, 2),
+                "overage_risk": "high" if util_pct > 80 else "medium" if util_pct > 50 else "low",
+                "note": "consumed_aic from 28-day cached data — may not align exactly with current billing cycle",
+            })
+
+        if not results:
+            return json.dumps({"error": "No seat or billing data found. Please sync data first."})
+
+        total_pool = sum(r["pool_total_aic"] for r in results)
+        total_consumed = sum(r["consumed_aic"] for r in results)
+        total_remaining = sum(r["remaining_aic"] for r in results)
+
+        return json.dumps({
+            "billing_model": "GitHub AI Credits (AIC) — effective June 1, 2026",
+            "aic_value": "1 AIC = $0.01 USD",
+            "promotional_period_active": in_promo,
+            "promo_period": f"{AIC_PROMO_START} to {AIC_PROMO_END}",
+            "organizations": results,
+            "grand_total": {
+                "pool_total_aic": total_pool,
+                "pool_total_usd": round(total_pool * AIC_VALUE_USD, 2),
+                "consumed_aic": round(total_consumed, 2),
+                "remaining_aic": round(total_remaining, 2),
+                "overall_utilization_pct": round(total_consumed / total_pool * 100, 1) if total_pool > 0 else 0.0,
+            },
+        }, default=str)
+
     tools = [
         get_usage_report, get_users_usage_report, get_metrics_detail,
         get_premium_request_usage, get_user_premium_usage,
@@ -1043,6 +1257,7 @@ def create_usage_tools(
         get_model_usage, get_language_adoption,
         get_cli_token_usage, get_usage_trends, get_user_activity_timeline,
         get_dormant_users, get_never_used_seats,
+        get_aic_usage, get_aic_pool_status,
     ]
 
     # --- Live fetch tools (require api_manager) ---

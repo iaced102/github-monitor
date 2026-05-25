@@ -16,6 +16,24 @@ COPILOT_PRICING = {
     "enterprise": 39.0,
 }
 
+# GitHub AI Credits (AIC) — new billing model effective June 1, 2026
+# 1 AIC = $0.01 USD
+AIC_VALUE_USD = 0.01
+
+# Standard monthly AIC included per user
+AIC_INCLUDED_PER_USER = {
+    "business": 1900,
+    "enterprise": 3900,
+}
+
+# Promotional period: June 1 – September 1, 2026
+AIC_PROMO_PER_USER = {
+    "business": 3000,
+    "enterprise": 7000,
+}
+AIC_PROMO_START = "2026-06-01"
+AIC_PROMO_END = "2026-09-01"
+
 
 class AppConfig:
     def __init__(self):

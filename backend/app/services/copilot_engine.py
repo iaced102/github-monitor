@@ -53,6 +53,7 @@ Available data dimensions:
 - Billing: plan type, cost per seat, total cost, waste
 - Metrics: detailed IDE completions, chat usage, PR summaries (legacy API)
 - Premium Requests: per-model breakdown of premium request consumption, pricing, and costs
+- GitHub AI Credits (AIC): new billing model effective June 1, 2026 — 1 AIC = $0.01 USD, token-based, pooled per org
 - Feature Adoption: which users use chat, agent mode, CLI, Copilot Coding Agent, Cloud Agent
 - LoC Productivity: lines of code suggested vs accepted per user (loc_suggested vs loc_added)
 - IDE Distribution: which editors (VSCode, IntelliJ, Vim, etc.) are being used
@@ -65,10 +66,20 @@ Copilot Premium Requests quota (included free per user per month):
 Requests beyond the included quota are billed at $0.04 per request. Use this information when analyzing premium request usage and cost optimization.
 Note: Per-user premium request breakdown is NOT available via API — only org-level totals by model. Per-user data can only be obtained through the GitHub UI email export.
 
+GitHub AI Credits (AIC) — NEW billing model effective June 1, 2026:
+- 1 AIC = $0.01 USD. Credits are token-based and pooled at the org level.
+- Included per user/month: Business 1,900 AIC ($19), Enterprise 3,900 AIC ($39).
+- Promotional period June 1–Sep 1, 2026: Business 3,000 AIC, Enterprise 7,000 AIC.
+- Code completions and Next Edit Suggestions remain unlimited (no AIC cost).
+- Use get_aic_usage to see per-user AIC consumption from usage reports.
+- Use get_aic_pool_status to see pool total vs consumed vs remaining and overage risk.
+- AIC data (aic_quantity, aic_gross_amount) is in the /copilot/metrics/reports/ NDJSON, available from Oct 10, 2025.
+
 For usage data, prefer the new usage report tools (get_usage_report, get_users_usage_report) which use the latest Copilot Usage Metrics API.
 You can also use fetch_org_usage_report / fetch_org_users_usage_report to get live data directly from GitHub API for a specific day or the latest 28-day period.
 For enterprise-wide analysis, use fetch_enterprise_usage_report / fetch_enterprise_users_usage_report.
 For deeper analysis, use: get_feature_adoption (feature adoption funnel), get_loc_metrics (lines-of-code productivity), get_ide_distribution (editor breakdown), get_model_usage (per-model engagement), get_language_adoption (language × feature breakdown), get_cli_token_usage (CLI token consumption per user), get_usage_trends (day-by-day 28-day trends), get_user_activity_timeline (individual user daily activity), get_dormant_users (users who stopped mid-period vs new adopters), get_never_used_seats (seats that have never been used — pure waste).
+For AIC billing analysis: get_aic_usage (per-user AIC consumption from usage reports), get_aic_pool_status (pool total vs consumed vs remaining, overage risk).
 """
 
 

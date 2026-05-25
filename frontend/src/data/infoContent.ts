@@ -537,4 +537,45 @@ export const INFO: Record<string, InfoContent> = {
     ],
     tip: "Các tab khác nhau dùng nguồn dữ liệu khác nhau. Số trong Usage Metrics KPI là con số chính xác nhất từ GitHub Billing.",
   },
+
+  // ─── Monitor Tab KPI Cards ───────────────────────────────────────────────
+  mon_uniqueModels: {
+    title: "Số Model AI khác nhau",
+    description: "Số lượng AI model khác biệt được sử dụng trong kỳ báo cáo 28 ngày gần nhất. Mỗi tên model riêng biệt trong dữ liệu GitHub được đếm một lần.",
+    metrics: [
+      { name: "Nguồn dữ liệu", desc: "Trường 'model' trong totals_by_model_feature của GitHub Usage API", example: "claude-sonnet-4.6, gpt-5.3-codex, ..." },
+      { name: "Lưu ý", desc: "GitHub đôi khi trả về cùng một model với tên hơi khác nhau (vd: claude-4.6-sonnet vs claude-sonnet-4.6) — con số có thể hơi cao hơn thực tế.", example: "15 models (bao gồm 'others', 'auto')" },
+    ],
+    tip: "Nếu con số có vẻ cao, kiểm tra bảng Model Detail bên dưới để xem danh sách đầy đủ các model đang được dùng.",
+  },
+  mon_topModel: {
+    title: "Model AI được dùng nhiều nhất",
+    description: "Model AI có tổng số hoạt động (Interactions + Code Gen) cao nhất trong 28 ngày gần nhất.",
+    metrics: [
+      { name: "Cách tính", desc: "Model có (interactions + code_gen) cao nhất tổng cộng 28 ngày", example: "claude-sonnet-4.6: 1,965 hoạt động" },
+      { name: "Interactions", desc: "Số lần người dùng gửi prompt/chat với model đó", example: "526 interactions" },
+      { name: "Code Gen", desc: "Số lần model sinh code suggestion (inline completion)", example: "1,439 code gen" },
+    ],
+    tip: "Model phổ biến nhất thường là model mặc định cho chat. Nếu đó là model premium (Claude Opus, GPT-5.5), cần theo dõi chi phí Premium Requests.",
+  },
+  mon_totalInteractions: {
+    title: "Tổng số Interactions (28 ngày)",
+    description: "Tổng số lần người dùng chủ động gửi yêu cầu tới Copilot AI (chat, prompt, agent) trong 28 ngày gần nhất. Được tổng hợp từ tất cả models và tất cả orgs.",
+    metrics: [
+      { name: "user_initiated_interaction_count", desc: "Số lần người dùng bấm gửi/submit 1 yêu cầu cho Copilot", example: "3,674 interactions" },
+      { name: "Khác Code Gen", desc: "Interactions là hành động chủ động (chat, agent); Code Gen là số lần Copilot tự đề xuất inline code", example: "Interactions: 3,674 · Code Gen: 3,764" },
+      { name: "Kỳ báo cáo", desc: "Tổng cộng 28 ngày gần nhất (enterprise-level usage report)", example: "2026-04-26 → 2026-05-24" },
+    ],
+    tip: "Interactions cao = team đang dùng Copilot Chat/Agent tích cực. Code Gen cao = team đang dùng inline completion nhiều. Cả hai đều tốt nhưng phản ánh kiểu sử dụng khác nhau.",
+  },
+  mon_totalCodeGen: {
+    title: "Tổng số Code Generations (28 ngày)",
+    description: "Tổng số lần Copilot tạo ra code suggestion (inline completion, code block) trong 28 ngày gần nhất, tính trên tất cả models.",
+    metrics: [
+      { name: "code_generation_activity_count", desc: "Số event Copilot sinh code — mỗi lần popup gợi ý hiện lên là 1 event", example: "3,764 code gen events" },
+      { name: "Khác với Accepted", desc: "Code Gen là số lần Copilot ĐỀ XUẤT; Code Accept là số lần developer CHẤP NHẬN (nhấn Tab)", example: "Gen: 3,764 → Accept: 1,497 (≈ 40%)" },
+      { name: "Kỳ báo cáo", desc: "28 ngày từ dữ liệu enterprise-level", example: "Tổng 28 ngày, không phải ngày hôm nay" },
+    ],
+    tip: "Accept Rate = Code Accept / Code Gen. Nếu Accept Rate thấp (< 25%), developer có thể đang dismiss gợi ý vì không phù hợp — cần cải thiện context (comment, tên biến rõ ràng hơn).",
+  },
 };

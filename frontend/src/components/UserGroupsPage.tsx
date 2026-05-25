@@ -59,6 +59,7 @@ function MemberList({ groupId, onClose }: MemberListProps) {
 
   // Autocomplete state
   const [query, setQuery] = useState("");
+  const [selectedUser, setSelectedUser] = useState<string | null>(null);
   const [allUsers, setAllUsers] = useState<string[]>([]);
   const [suggestions, setSuggestions] = useState<string[]>([]);
   const [showDropdown, setShowDropdown] = useState(false);
@@ -95,14 +96,20 @@ function MemberList({ groupId, onClose }: MemberListProps) {
     setHighlightIdx(0);
   }, [query, allUsers, members]);
 
-  const handleAdd = async (username?: string) => {
-    // Strip leading @ if present to avoid storing "@username" when display adds @ prefix
-    const raw = (username ?? query).trim().toLowerCase();
-    const name = raw.startsWith("@") ? raw.slice(1) : raw;
-    if (!name) return;
+  const handleSelectFromDropdown = (username: string) => {
+    setQuery(username);
+    setSelectedUser(username);
+    setSuggestions([]);
+    setShowDropdown(false);
+    inputRef.current?.focus();
+  };
+
+  const handleAdd = async () => {
+    if (!selectedUser) return;
     setSaving(true);
-    await apiPost(`/api/groups/${groupId}/members`, { usernames: [name] });
+    await apiPost(`/api/groups/${groupId}/members`, { usernames: [selectedUser] });
     setQuery("");
+    setSelectedUser(null);
     setSuggestions([]);
     setShowDropdown(false);
     await loadMembers();
@@ -118,12 +125,12 @@ function MemberList({ groupId, onClose }: MemberListProps) {
 
   const handleKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
     if (!showDropdown) {
-      if (e.key === "Enter") handleAdd();
+      if (e.key === "Enter" && selectedUser) handleAdd();
       return;
     }
     if (e.key === "ArrowDown") { e.preventDefault(); setHighlightIdx((i) => Math.min(i + 1, suggestions.length - 1)); }
     else if (e.key === "ArrowUp") { e.preventDefault(); setHighlightIdx((i) => Math.max(i - 1, 0)); }
-    else if (e.key === "Enter") { e.preventDefault(); handleAdd(suggestions[highlightIdx]); }
+    else if (e.key === "Enter") { e.preventDefault(); handleSelectFromDropdown(suggestions[highlightIdx]); }
     else if (e.key === "Escape") { setShowDropdown(false); }
   };
 
@@ -140,14 +147,14 @@ function MemberList({ groupId, onClose }: MemberListProps) {
               ref={inputRef}
               className="groups-input"
               value={query}
-              onChange={(e) => setQuery(e.target.value)}
+              onChange={(e) => { setQuery(e.target.value); setSelectedUser(null); }}
               placeholder={t("groups.addMember")}
               onKeyDown={handleKeyDown}
               onBlur={() => setTimeout(() => setShowDropdown(false), 150)}
               onFocus={() => query && suggestions.length > 0 && setShowDropdown(true)}
               autoComplete="off"
             />
-            <button className="btn btn-small btn-primary" onClick={() => handleAdd()} disabled={saving || !query.trim()}>
+            <button className="btn btn-small btn-primary" onClick={() => handleAdd()} disabled={saving || !selectedUser}>
               {saving ? "…" : "+"}
             </button>
             {showDropdown && (
@@ -156,7 +163,7 @@ function MemberList({ groupId, onClose }: MemberListProps) {
                   <div
                     key={u}
                     className={`member-autocomplete-item${i === highlightIdx ? " highlighted" : ""}`}
-                    onMouseDown={() => handleAdd(u)}
+                    onMouseDown={() => handleSelectFromDropdown(u)}
                     onMouseEnter={() => setHighlightIdx(i)}
                   >
                     <span className="member-autocomplete-avatar">
@@ -533,8 +540,7 @@ export function UserGroupsPage() {
   };
 
   const handleACQuery = (idx: number, q: string) => {
-    updateRowUsername(idx, q);
-    const filtered = availableUsers.filter((u) => u.toLowerCase().includes(q.toLowerCase()) && u.toLowerCase() !== q.toLowerCase()).slice(0, 8);
+    const filtered = availableUsers.filter((u) => u.toLowerCase().includes(q.toLowerCase())).slice(0, 8);
     updateRowAC(idx, { query: q, suggestions: filtered, open: filtered.length > 0, hi: 0 });
   };
 

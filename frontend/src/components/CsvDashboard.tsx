@@ -419,6 +419,131 @@ function PremiumContent({ data, apiData }: { data: PremiumCsvSection; apiData?: 
           </div>
         </div>
       </Section>
+
+      <PremiumUserModelChart data={data} />
+    </>
+  );
+}
+
+/* ---------- Premium User×Model Chart + Table ---------- */
+function PremiumUserModelChart({ data }: { data: PremiumCsvSection }) {
+  const { t } = useI18n();
+
+  if (!data.users || data.users.length === 0) return null;
+
+  // Collect all unique model names (shortened)
+  const allModels = useMemo(() => {
+    const set = new Set<string>();
+    data.users.forEach((u) => u.models.forEach((m) => set.add(m.model)));
+    return Array.from(set);
+  }, [data.users]);
+
+  // Build chart data: one entry per user with a key per model
+  const chartData = useMemo(() => {
+    const TOP = 20; // limit to top 20 users by total requests
+    const sorted = [...data.users].sort((a, b) => b.requests - a.requests).slice(0, TOP);
+    return sorted.map((u) => {
+      const entry: Record<string, string | number> = {
+        user: u.user.split("@")[0], // show login only
+      };
+      allModels.forEach((m) => {
+        const found = u.models.find((x) => x.model === m);
+        entry[m] = found ? found.requests : 0;
+      });
+      return entry;
+    });
+  }, [data.users, allModels]);
+
+  // Build cross-tab table: rows = users, columns = models
+  const tableData = useMemo(() => {
+    return [...data.users]
+      .sort((a, b) => b.requests - a.requests)
+      .map((u) => ({
+        user: u.user,
+        org: u.org,
+        total: u.requests,
+        models: allModels.map((m) => {
+          const found = u.models.find((x) => x.model === m);
+          return found ? found.requests : 0;
+        }),
+      }));
+  }, [data.users, allModels]);
+
+  const shortModel = (m: string) => m.split(":").pop()?.trim() || m;
+
+  return (
+    <>
+      <Section sectionKey="premiumUserModelChart" title={t("csvDash.userModelChart")} infoKey="csv_section_premiumUserModelChart">
+        <div className="dashboard-charts">
+          <div className="chart-card chart-card-wide">
+            {chartData.length > 0 ? (
+              <ResponsiveContainer width="100%" height={Math.max(300, chartData.length * 36)}>
+                <BarChart data={chartData} layout="vertical">
+                  <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" />
+                  <XAxis type="number" tick={{ fontSize: 11, fill: "var(--text-muted)" }} />
+                  <YAxis dataKey="user" type="category" width={130} tick={{ fontSize: 11, fill: "var(--text-muted)" }} />
+                  <Tooltip contentStyle={TOOLTIP_STYLE} />
+                  {allModels.map((m, i) => (
+                    <Bar key={m} dataKey={m} name={shortModel(m)} stackId="stack"
+                      fill={COLORS[i % COLORS.length]} radius={i === allModels.length - 1 ? [0, 4, 4, 0] : undefined} />
+                  ))}
+                  <Legend wrapperStyle={{ fontSize: 11 }} formatter={(v) => shortModel(String(v))} />
+                </BarChart>
+              </ResponsiveContainer>
+            ) : <div className="chart-empty">{t("csvDash.noData")}</div>}
+          </div>
+        </div>
+      </Section>
+
+      <Section sectionKey="premiumUserModelTable" title={t("csvDash.userModelTable")} infoKey="csv_section_premiumUserModelTable">
+        <div className="dashboard-charts">
+          <div className="chart-card chart-card-wide">
+            {tableData.length > 0 ? (
+              <>
+                <div style={{ display: "flex", justifyContent: "flex-end", marginBottom: 6 }}>
+                  <button className="btn btn-small" onClick={() => {
+                    const rows = tableData.map((u) => ({
+                      user: u.user, org: u.org, total: u.total,
+                      ...Object.fromEntries(allModels.map((m, i) => [shortModel(m), u.models[i]])),
+                    }));
+                    exportCSV("premium-user-model", rows);
+                  }}>⬇ CSV</button>
+                </div>
+                <div className="dashboard-table-wrap">
+                  <table className="dashboard-table">
+                    <thead>
+                      <tr>
+                        <th>#</th>
+                        <th>{t("csvDash.user")}</th>
+                        <th>{t("csvDash.org")}</th>
+                        <th>{t("csvDash.total")}</th>
+                        {allModels.map((m) => (
+                          <th key={m} title={m}>{shortModel(m)}</th>
+                        ))}
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {tableData.map((u, i) => (
+                        <tr key={u.user}>
+                          <td className="rank">{i + 1}</td>
+                          <td className="user-name">{u.user}</td>
+                          <td>{u.org}</td>
+                          <td><strong>{u.total.toLocaleString()}</strong></td>
+                          {u.models.map((cnt, j) => (
+                            <td key={j} style={{ color: cnt > 0 ? "var(--text-primary)" : "var(--text-muted)" }}>
+                              {cnt > 0 ? cnt.toLocaleString() : "—"}
+                            </td>
+                          ))}
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </>
+            ) : <div className="chart-empty">{t("csvDash.noData")}</div>}
+          </div>
+        </div>
+      </Section>
     </>
   );
 }
