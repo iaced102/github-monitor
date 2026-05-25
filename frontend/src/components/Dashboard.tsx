@@ -69,6 +69,7 @@ export function Dashboard({ refreshKey }: Props) {
   const { data, loading } = useDashboard(selectedOrgs ?? [], ui.selectedGroupId);
   const { trend } = useKpiTrend(selectedOrgs ?? [], ui.selectedGroupId);
   const [drilldownUser, setDrilldownUser] = useState<string | null>(null);
+  const [selectedFeature, setSelectedFeature] = useState<string | null>(null);
 
   const dateFrom = ui.dashboardDateFrom;
   const setDateFrom = useCallback((v: string) => ui.patch({ dashboardDateFrom: v }), [ui.patch]);
@@ -339,7 +340,73 @@ export function Dashboard({ refreshKey }: Props) {
           <Section sectionKey="featureUsage" title={t("dashboard.featureUsage")} infoKey="section_featureUsage">
             <div className="dashboard-charts">
               <div className="chart-card chart-card-wide">
-                {data.feature_usage.length > 0 ? (
+                {selectedFeature ? (
+                  /* ── Per-user drilldown for selected feature ── */
+                  (() => {
+                    const featureUsers = (data.user_feature_usage ?? [])
+                      .filter((r) => r.feature === selectedFeature)
+                      .sort((a, b) => b.total - a.total);
+                    return (
+                      <>
+                        <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 10 }}>
+                          <button
+                            className="btn btn-small"
+                            onClick={() => setSelectedFeature(null)}
+                            style={{ fontSize: 12 }}
+                          >
+                            ← {t("monitor.backToFeatures")}
+                          </button>
+                          <span style={{ fontWeight: 600, color: "var(--accent)" }}>
+                            {FEATURE_NAME_MAP[selectedFeature] ?? selectedFeature}
+                          </span>
+                          <span style={{ color: "var(--text-muted)", fontSize: 12 }}>
+                            — {t("monitor.featureUserBreakdown")}
+                          </span>
+                        </div>
+                        {featureUsers.length > 0 ? (
+                          <div className="dashboard-table-wrap" style={{ maxHeight: 420 }}>
+                            <table className="dashboard-table">
+                              <thead>
+                                <tr>
+                                  <th>User</th>
+                                  <th>Total</th>
+                                  <th title="Số lần gửi prompt / chat">Interactions 💬</th>
+                                  <th title="Số lần sinh code suggestion">Code Gen ⌨️</th>
+                                  <th>Code Accept</th>
+                                  <th>Accept %</th>
+                                  <th>LOC Suggested</th>
+                                  <th>LOC Accepted</th>
+                                </tr>
+                              </thead>
+                              <tbody>
+                                {featureUsers.map((u, ri) => (
+                                  <tr
+                                    key={u.user}
+                                    className="clickable-row"
+                                    style={{ background: ri % 2 === 0 ? "var(--bg-secondary)" : "var(--bg-tertiary)" }}
+                                    onClick={() => setDrilldownUser(u.user)}
+                                  >
+                                    <td style={{ fontWeight: 500 }}><span className="user-link">{u.user}</span></td>
+                                    <td style={{ fontWeight: 600, color: "var(--accent)" }}>{u.total.toLocaleString()}</td>
+                                    <td>{u.interactions > 0 ? u.interactions.toLocaleString() : <span style={{ color: "var(--text-muted)" }}>—</span>}</td>
+                                    <td>{u.code_gen > 0 ? u.code_gen.toLocaleString() : <span style={{ color: "var(--text-muted)" }}>—</span>}</td>
+                                    <td>{u.code_accept > 0 ? u.code_accept.toLocaleString() : <span style={{ color: "var(--text-muted)" }}>—</span>}</td>
+                                    <td>{u.code_gen > 0 ? `${Math.round((u.code_accept / u.code_gen) * 100)}%` : "—"}</td>
+                                    <td>{u.loc_suggested > 0 ? u.loc_suggested.toLocaleString() : <span style={{ color: "var(--text-muted)" }}>—</span>}</td>
+                                    <td>{u.loc_accepted > 0 ? u.loc_accepted.toLocaleString() : <span style={{ color: "var(--text-muted)" }}>—</span>}</td>
+                                  </tr>
+                                ))}
+                              </tbody>
+                            </table>
+                          </div>
+                        ) : (
+                          <div className="chart-empty">{t("dashboard.noData")}</div>
+                        )}
+                      </>
+                    );
+                  })()
+                ) : data.feature_usage.length > 0 ? (
+                  /* ── Feature summary table ── */
                   <div className="dashboard-table-wrap">
                     <table className="dashboard-table">
                       <thead>
@@ -354,9 +421,15 @@ export function Dashboard({ refreshKey }: Props) {
                         </tr>
                       </thead>
                       <tbody>
-                        {data.feature_usage.map((f) => (
-                          <tr key={f.feature}>
-                            <td className="user-name">{FEATURE_NAME_MAP[f.feature] ?? f.feature}</td>
+                        {data.feature_usage.map((f, ri) => (
+                          <tr
+                            key={f.feature}
+                            className="clickable-row"
+                            style={{ background: ri % 2 === 0 ? "var(--bg-secondary)" : "var(--bg-tertiary)", cursor: "pointer" }}
+                            onClick={() => setSelectedFeature(f.feature)}
+                            title={`Xem sử dụng theo người dùng: ${FEATURE_NAME_MAP[f.feature] ?? f.feature}`}
+                          >
+                            <td className="user-name"><span className="user-link">{FEATURE_NAME_MAP[f.feature] ?? f.feature}</span></td>
                             <td>{f.interactions.toLocaleString()}</td>
                             <td>{f.code_gen.toLocaleString()}</td>
                             <td>{f.code_accept.toLocaleString()}</td>

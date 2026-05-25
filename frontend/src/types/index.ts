@@ -123,6 +123,7 @@ export interface DashboardData {
     loc_suggested: number; loc_accepted: number;
   }[];
   feature_usage: { feature: string; interactions: number; code_gen: number; code_accept: number; loc_suggested: number; loc_accepted: number }[];
+  user_feature_usage: { user: string; feature: string; interactions: number; code_gen: number; code_accept: number; loc_suggested: number; loc_accepted: number; total: number }[];
   model_usage: { model: string; interactions: number; code_gen: number; code_accept: number; loc_suggested: number; loc_accepted: number; premium_requests: number }[];
   ide_usage: { ide: string; interactions: number; code_gen: number; code_accept: number; loc_suggested: number; loc_accepted: number }[];
   language_usage: { language: string; code_gen: number; code_accept: number; loc_suggested: number; loc_accepted: number }[];

@@ -645,6 +645,42 @@ async def get_dashboard(request: Request, orgs: str = Query(default=""), group_i
         metrics_lang_map.items(), key=lambda x: -x[1]["suggestions"]
     )]
 
+    # --- Per-user feature usage (for drilldown in feature table) ---
+    user_feature_map: dict[str, dict[str, dict]] = defaultdict(
+        lambda: defaultdict(lambda: {"interactions": 0, "code_gen": 0, "code_accept": 0, "loc_suggested": 0, "loc_accepted": 0})
+    )
+    for org_name in selected:
+        uu = data_collector.load_latest("usage_users", org_name)
+        if not uu:
+            continue
+        for rec in (uu if isinstance(uu, list) else uu.get("records", [uu])):
+            login = rec.get("user_login", "")
+            if not login:
+                continue
+            if scope_users is not None and login.lower() not in scope_users:
+                continue
+            for fb in rec.get("totals_by_feature", []):
+                f = fb.get("feature", "unknown")
+                user_feature_map[login][f]["interactions"] += fb.get("user_initiated_interaction_count", 0)
+                user_feature_map[login][f]["code_gen"] += fb.get("code_generation_activity_count", 0)
+                user_feature_map[login][f]["code_accept"] += fb.get("code_acceptance_activity_count", 0)
+                user_feature_map[login][f]["loc_suggested"] += fb.get("loc_suggested_to_add_sum", 0) + fb.get("loc_suggested_to_delete_sum", 0)
+                user_feature_map[login][f]["loc_accepted"] += fb.get("loc_added_sum", 0) + fb.get("loc_deleted_sum", 0)
+
+    user_feature_usage: list[dict] = []
+    for login, feats in user_feature_map.items():
+        for feat, vals in feats.items():
+            user_feature_usage.append({
+                "user": login, "feature": feat,
+                "interactions": vals["interactions"],
+                "code_gen": vals["code_gen"],
+                "code_accept": vals["code_accept"],
+                "loc_suggested": vals["loc_suggested"],
+                "loc_accepted": vals["loc_accepted"],
+                "total": vals["interactions"] + vals["code_gen"],
+            })
+    user_feature_usage.sort(key=lambda x: (-x["total"], x["user"]))
+
     return {
         "kpi": kpi,
         "seat_info": seat_info,
@@ -660,6 +696,7 @@ async def get_dashboard(request: Request, orgs: str = Query(default=""), group_i
         "orgs": all_org_names,
         "date_range": {"start": date_start, "end": date_end},
         "user_premium_usage": _aggregate_user_premium_csv(selected),
+        "user_feature_usage": user_feature_usage,
     }
 
 
