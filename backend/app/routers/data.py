@@ -151,30 +151,45 @@ async def get_overview():
             continue
 
         orgs_with_copilot += 1
-        if billing:
-            price = billing.get("_detected_price_per_seat", 39.0)
-            sb = billing.get("seat_breakdown", {})
-            seats = sb.get("total", 0)
-            active = sb.get("active_this_cycle", 0)
-        else:
-            from datetime import datetime, timezone
+        price = float((billing or {}).get("_detected_price_per_seat", 39.0) or 39.0)
+
+        # Derive active/inactive counts from the full seat list so the numbers
+        # are consistent with the Lifecycle scan (last_activity_at rolling window).
+        # seats_list includes pending-cancellation entries; counting directly from
+        # it avoids the mismatch where total_seats < len(seats_list).
+        if seats_data:
+            seats_list = seats_data.get("seats", [])
+            # Use API total_seats for billing cost, fall back to list length
+            billing_seats = seats_data.get("total_seats", 0) or len(seats_list)
+            seats = len(seats_list)  # display/count total
             now = datetime.now(timezone.utc)
-            price = 39.0
-            seats = seats_data.get("total_seats", 0)
             active = 0
-            for s in seats_data.get("seats", []):
+            inactive = 0
+            for s in seats_list:
                 last = s.get("last_activity_at")
+                is_active = False
                 if last:
                     try:
-                        if (now - datetime.fromisoformat(last.replace("Z", "+00:00"))).days < 30:
-                            active += 1
+                        is_active = (now - datetime.fromisoformat(last.replace("Z", "+00:00"))).days < 30
                     except (ValueError, TypeError):
                         pass
+                if is_active:
+                    active += 1
+                else:
+                    inactive += 1
+        elif billing:
+            sb = billing.get("seat_breakdown", {})
+            billing_seats = sb.get("total", 0)
+            seats = billing_seats
+            active = sb.get("active_this_cycle", 0)
+            inactive = seats - active
+        else:
+            billing_seats = seats = active = inactive = 0
 
         total_seats += seats
         total_active += active
-        total_cost += seats * price
-        total_waste += (seats - active) * price
+        total_cost += billing_seats * price
+        total_waste += inactive * price
 
     return {
         "total_organizations": len(all_scope_names),
@@ -250,12 +265,18 @@ async def get_dashboard(request: Request, orgs: str = Query(default=""), group_i
         available_orgs.append(org_name)
         price = billing.get("_detected_price_per_seat", 19.0) if billing else 39.0
 
+        # Always derive seat counts from the actual seats list (same as get_overview)
+        # so that pending-cancellation seats are included and numbers match Lifecycle scan.
+        # Use billing total_seats only for cost calculation.
+        seats_list = (seats_data or {}).get("seats", [])
+        billing_total = (seats_data or {}).get("total_seats", 0) or len(seats_list)
+
         if scope_users is not None:
-            # When a group scope is active, compute KPIs by iterating individual seats
-            has_billing_error = True  # treat as derived
+            # Group scope: only count seats belonging to the group
+            has_billing_error = True
             s = 0
             a = 0
-            for seat in (seats_data or {}).get("seats", []):
+            for seat in seats_list:
                 login = (seat.get("assignee") or {}).get("login", "")
                 if login not in scope_users:
                     continue
@@ -267,17 +288,17 @@ async def get_dashboard(request: Request, orgs: str = Query(default=""), group_i
                             a += 1
                     except (ValueError, TypeError):
                         pass
-        elif billing and not billing.get("_billing_scope_error"):
-            sb = billing.get("seat_breakdown", {})
-            s = sb.get("total", 0)
-            a = sb.get("active_this_cycle", 0)
-        else:
-            # No billing data or 403 scope error — derive from seats + activity dates
-            has_billing_error = True
-            price = (billing.get("_detected_price_per_seat", 39.0) if billing else 39.0)
-            s = seats_data.get("total_seats", 0) if seats_data else 0
+            billing_total = s  # cost based on actual group seat count
+        elif seats_list:
+            # Use full seats list for accurate total (includes pending-cancellation seats)
+            if billing and not billing.get("_billing_scope_error"):
+                pass  # billing_total already set above for cost
+            else:
+                has_billing_error = True
+                price = (billing.get("_detected_price_per_seat", 39.0) if billing else 39.0)
+            s = len(seats_list)
             a = 0
-            for seat in (seats_data or {}).get("seats", []):
+            for seat in seats_list:
                 last = seat.get("last_activity_at")
                 if last:
                     try:
@@ -285,9 +306,12 @@ async def get_dashboard(request: Request, orgs: str = Query(default=""), group_i
                             a += 1
                     except (ValueError, TypeError):
                         pass
+        else:
+            s = 0
+            a = 0
         total_seats += s
         active_seats += a
-        monthly_cost += s * price
+        monthly_cost += billing_total * price
         monthly_waste += (s - a) * price
 
     inactive_seats = total_seats - active_seats
@@ -1871,6 +1895,18 @@ async def get_usage_monitor(
     all_scopes = _get_all_scope_names()
     scopes = [s for s in all_scopes if not org_filter or s in org_filter] or all_scopes
 
+    def _normalize_model(name: str) -> str:
+        """Normalize model names that GitHub returns inconsistently.
+        e.g. 'claude-4.6-sonnet' and 'claude-sonnet-4.6' are the same model.
+        """
+        # Canonical: claude-{version}-{variant} → claude-{variant}-{version}
+        import re
+        # claude-X.Y-variant  →  claude-variant-X.Y
+        m = re.match(r"^(claude)-(\d+\.\d+)-(.+)$", name)
+        if m:
+            return f"{m.group(1)}-{m.group(3)}-{m.group(2)}"
+        return name
+
     # ── aggregate usage (org-level) ───────────────────────────────────────────
     model_totals: dict[str, dict] = defaultdict(lambda: {
         "interactions": 0, "code_gen": 0, "code_accept": 0,
@@ -1899,7 +1935,7 @@ async def get_usage_monitor(
                     continue
                 day = rec.get("day", "")
                 for mf in rec.get("totals_by_model_feature", []):
-                    m = mf.get("model", "unknown")
+                    m = _normalize_model(mf.get("model", "unknown"))
                     model_totals[m]["interactions"] += mf.get("user_initiated_interaction_count", 0)
                     model_totals[m]["code_gen"] += mf.get("code_generation_activity_count", 0)
                     model_totals[m]["code_accept"] += mf.get("code_acceptance_activity_count", 0)
@@ -1915,7 +1951,7 @@ async def get_usage_monitor(
                         daily_model[day][m]["code_accept"] += mf.get("code_acceptance_activity_count", 0)
                 for lm in rec.get("totals_by_language_model", []):
                     lang = lm.get("language", "unknown")
-                    m = lm.get("model", "unknown")
+                    m = _normalize_model(lm.get("model", "unknown"))
                     model_lang[(m, lang)]["code_gen"] += lm.get("code_generation_activity_count", 0)
                     model_lang[(m, lang)]["code_accept"] += lm.get("code_acceptance_activity_count", 0)
                     model_lang[(m, lang)]["loc_suggested"] += lm.get("loc_suggested_to_add_sum", 0)
@@ -1929,7 +1965,7 @@ async def get_usage_monitor(
                 for day_rec in rec.get("day_totals", []):
                     day = day_rec.get("day", "")
                     for mf in day_rec.get("totals_by_model_feature", []):
-                        m = mf.get("model", "unknown")
+                        m = _normalize_model(mf.get("model", "unknown"))
                         model_totals[m]["interactions"] += mf.get("user_initiated_interaction_count", 0)
                         model_totals[m]["code_gen"] += mf.get("code_generation_activity_count", 0)
                         model_totals[m]["code_accept"] += mf.get("code_acceptance_activity_count", 0)
@@ -1944,7 +1980,7 @@ async def get_usage_monitor(
                         daily_model[day][m]["code_accept"] += mf.get("code_acceptance_activity_count", 0)
                     for lm in day_rec.get("totals_by_language_model", []):
                         lang = lm.get("language", "unknown")
-                        m = lm.get("model", "unknown")
+                        m = _normalize_model(lm.get("model", "unknown"))
                         model_lang[(m, lang)]["code_gen"] += lm.get("code_generation_activity_count", 0)
                         model_lang[(m, lang)]["code_accept"] += lm.get("code_acceptance_activity_count", 0)
                         model_lang[(m, lang)]["loc_suggested"] += lm.get("loc_suggested_to_add_sum", 0)
@@ -1952,6 +1988,9 @@ async def get_usage_monitor(
     # ── aggregate usage_users (per-user) ──────────────────────────────────────
     user_model: dict[str, dict[str, dict]] = defaultdict(
         lambda: defaultdict(lambda: {"interactions": 0, "code_gen": 0, "code_accept": 0})
+    )
+    user_feature: dict[str, dict[str, dict]] = defaultdict(
+        lambda: defaultdict(lambda: {"interactions": 0, "code_gen": 0})
     )
     user_totals: dict[str, int] = defaultdict(int)
 
@@ -1965,13 +2004,16 @@ async def get_usage_monitor(
             if scope_users is not None and login.lower() not in scope_users:
                 continue
             for mf in rec.get("totals_by_model_feature", []):
-                m = mf.get("model", "unknown")
+                m = _normalize_model(mf.get("model", "unknown"))
                 interactions = mf.get("user_initiated_interaction_count", 0)
                 code_gen = mf.get("code_generation_activity_count", 0)
                 code_accept = mf.get("code_acceptance_activity_count", 0)
+                feat = mf.get("feature", "unknown")
                 user_model[login][m]["interactions"] += interactions
                 user_model[login][m]["code_gen"] += code_gen
                 user_model[login][m]["code_accept"] += code_accept
+                user_feature[login][feat]["interactions"] += interactions
+                user_feature[login][feat]["code_gen"] += code_gen
                 user_totals[login] += interactions + code_gen
 
     # ── serialise ─────────────────────────────────────────────────────────────
@@ -2004,13 +2046,31 @@ async def get_usage_monitor(
     # get all unique model names (used as chart series keys)
     all_models = sorted(model_totals.keys())
 
-    # per-user breakdown
+    # date range for period label
+    report_days = sorted(daily_model.keys())
+    report_start = report_days[0] if report_days else None
+    report_end = report_days[-1] if report_days else None
+
+    # per-user model breakdown
     user_model_list = []
     for login in sorted(user_totals.keys(), key=lambda u: -user_totals[u]):
         row: dict = {"user": login, "total": user_totals[login]}
         for m, vals in user_model[login].items():
             row[m] = vals["interactions"] + vals["code_gen"]
         user_model_list.append(row)
+
+    # per-user feature breakdown
+    user_feature_list = []
+    for login, feats in user_feature.items():
+        for feat, vals in feats.items():
+            user_feature_list.append({
+                "user": login,
+                "feature": feat,
+                "interactions": vals["interactions"],
+                "code_gen": vals["code_gen"],
+                "total": vals["interactions"] + vals["code_gen"],
+            })
+    user_feature_list.sort(key=lambda x: (-x["total"], x["user"]))
 
     # KPIs
     total_interactions = sum(v["interactions"] for v in model_totals.values())
@@ -2026,6 +2086,8 @@ async def get_usage_monitor(
             "unique_models": unique_models,
             "top_model": top_model,
             "active_users": active_users,
+            "report_start": report_start,
+            "report_end": report_end,
         },
         "model_totals": model_totals_list,
         "model_feature": model_feature_list,
@@ -2033,6 +2095,7 @@ async def get_usage_monitor(
         "daily_trend": daily_trend,
         "all_models": all_models,
         "user_model": user_model_list,
+        "user_feature": user_feature_list,
     }
 
 

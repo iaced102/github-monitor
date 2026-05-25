@@ -240,6 +240,10 @@ const translations = {
     "csvDash.skuBreakdown": "SKU Breakdown",
     "csvDash.orgBreakdown": "Org Breakdown",
     "csvDash.userTable": "Per-User Details",
+    "csvDash.userModelChart": "Premium Requests by User & Model",
+    "csvDash.userModelTable": "Premium Requests per User (by Model)",
+    "csvDash.model": "Model",
+    "csvDash.total": "Total",
     "csvDash.user": "User",
     "csvDash.org": "Org",
     "csvDash.costCenter": "Cost Center",
@@ -305,6 +309,8 @@ const translations = {
     "monitor.total": "Total",
     "monitor.sectionLangModel": "Language × Model",
     "monitor.langModelChart": "Code Generations by Language & Model",
+    "monitor.backToFeatures": "Back to Features",
+    "monitor.featureUserBreakdown": "Usage by user for this feature",
 
     // Alerts
     "alerts.title": "Alerts",
@@ -665,6 +671,10 @@ const translations = {
     "csvDash.skuBreakdown": "SKU \u5206\u5e03",
     "csvDash.orgBreakdown": "\u7ec4\u7ec7\u5206\u5e03",
     "csvDash.userTable": "\u7528\u6237\u660e\u7ec6",
+    "csvDash.userModelChart": "\u7528\u6237\u4e0e\u6a21\u578b\u9ad8\u7ea7\u8bf7\u6c42",
+    "csvDash.userModelTable": "\u6bcf\u7528\u6237\u9ad8\u7ea7\u8bf7\u6c42\uff08\u6309\u6a21\u578b\uff09",
+    "csvDash.model": "\u6a21\u578b",
+    "csvDash.total": "\u603b\u8ba1",
     "csvDash.user": "\u7528\u6237",
     "csvDash.org": "\u7ec4\u7ec7",
     "csvDash.costCenter": "\u6210\u672c\u4e2d\u5fc3",
@@ -730,6 +740,8 @@ const translations = {
     "monitor.total": "合计",
     "monitor.sectionLangModel": "语言 × 模型",
     "monitor.langModelChart": "按语言与模型的代码生成",
+    "monitor.backToFeatures": "返回功能列表",
+    "monitor.featureUserBreakdown": "该功能的用户使用情况",
 
     // Alerts
     "alerts.title": "告警",
@@ -1088,6 +1100,10 @@ const translations = {
     "csvDash.skuBreakdown": "Phân tích SKU",
     "csvDash.orgBreakdown": "Phân tích tổ chức",
     "csvDash.userTable": "Chi tiết người dùng",
+    "csvDash.userModelChart": "Yêu cầu cao cấp theo người dùng & mô hình",
+    "csvDash.userModelTable": "Yêu cầu cao cấp theo người dùng (theo mô hình)",
+    "csvDash.model": "Mô hình",
+    "csvDash.total": "Tổng",
     "csvDash.user": "Người dùng",
     "csvDash.org": "Tổ chức",
     "csvDash.costCenter": "Trung tâm chi phí",
@@ -1153,6 +1169,8 @@ const translations = {
     "monitor.total": "Tổng",
     "monitor.sectionLangModel": "Ngôn ngữ × Model",
     "monitor.langModelChart": "Sinh code theo Ngôn ngữ & Model",
+    "monitor.backToFeatures": "Quay lại danh sách tính năng",
+    "monitor.featureUserBreakdown": "Mức độ sử dụng theo từng người dùng",
 
     // Alerts
     "alerts.title": "Cảnh báo",

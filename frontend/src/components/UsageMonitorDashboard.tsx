@@ -41,12 +41,29 @@ function Section({ sectionKey, title, infoKey, defaultOpen = true, children }: {
 
 /* ---------- Short model name for display ---------- */
 function shortModel(m: string): string {
+  if (m === "others") return "Others (mixed)";
+  if (m === "auto") return "Auto (default)";
   return m.replace("gpt-", "GPT-").replace("claude-", "Claude-").replace("gemini-", "Gemini-");
 }
 
 /* ---------- Safe chart key from model name ---------- */
 function modelKey(m: string): string {
   return m.replace(/[-./]/g, "_");
+}
+
+/* ---------- Friendly feature label ---------- */
+const FEATURE_LABELS: Record<string, string> = {
+  chat_panel_agent_mode:    "Chat – Agent Mode",
+  chat_panel_ask_mode:      "Chat – Ask Mode",
+  chat_panel_custom_mode:   "Chat – Custom Mode",
+  chat_panel_plan_mode:     "Chat – Plan Mode",
+  chat_panel_unknown_mode:  "Chat – Unknown Mode",
+  agent_edit:               "Agent Edit (file edits)",
+  copilot_cli:              "Copilot CLI",
+  others:                   "Others (unclassified)",
+};
+function friendlyFeature(f: string): string {
+  return FEATURE_LABELS[f] ?? f.replace(/_/g, " ");
 }
 
 export function UsageMonitorDashboard({ refreshKey: _refreshKey, selectedOrgs }: Props) {
@@ -57,6 +74,7 @@ export function UsageMonitorDashboard({ refreshKey: _refreshKey, selectedOrgs }:
   const [userSort, setUserSort] = useState<"total" | string>("total");
   const [userSortDir, setUserSortDir] = useState<"desc" | "asc">("desc");
   const [drilldownUser, setDrilldownUser] = useState<string | null>(null);
+  const [selectedFeature, setSelectedFeature] = useState<string | null>(null);
 
   if (loading) {
     return <div className="dashboard-loading"><div className="loading-spinner" /><span>{t("loading")}</span></div>;
@@ -65,7 +83,7 @@ export function UsageMonitorDashboard({ refreshKey: _refreshKey, selectedOrgs }:
     return <div className="dashboard-empty">{t("dashboard.noData")}</div>;
   }
 
-  const { kpi, model_totals, model_feature, model_language, daily_trend, all_models, user_model } = data;
+  const { kpi, model_totals, model_feature, model_language, daily_trend, all_models, user_model, user_feature } = data;
 
   // Unique features for the feature×model table
   const allFeatures = [...new Set<string>(model_feature.map((r: any) => r.feature))].sort();
@@ -117,20 +135,24 @@ export function UsageMonitorDashboard({ refreshKey: _refreshKey, selectedOrgs }:
         <div className="dash-section-body" style={{ paddingTop: 0 }}>
           <div className="dashboard-kpi">
             <div className="stat-card">
+              <InfoIcon id="mon_uniqueModels" />
               <div className="stat-value">{kpi.unique_models}</div>
               <div className="stat-label">{t("monitor.uniqueModels")}</div>
             </div>
             <div className="stat-card">
+              <InfoIcon id="mon_topModel" />
               <div className="stat-value" style={{ fontSize: 14, wordBreak: "break-all" }}>
                 {shortModel(kpi.top_model)}
               </div>
               <div className="stat-label">{t("monitor.topModel")}</div>
             </div>
             <div className="stat-card">
+              <InfoIcon id="mon_totalInteractions" />
               <div className="stat-value">{kpi.total_interactions.toLocaleString()}</div>
               <div className="stat-label">{t("monitor.totalInteractions")}</div>
             </div>
             <div className="stat-card">
+              <InfoIcon id="mon_totalCodeGen" />
               <div className="stat-value">{kpi.total_code_gen.toLocaleString()}</div>
               <div className="stat-label">{t("monitor.totalCodeGen")}</div>
             </div>
@@ -140,6 +162,11 @@ export function UsageMonitorDashboard({ refreshKey: _refreshKey, selectedOrgs }:
               <div className="stat-label">{t("monitor.activeUsers")}</div>
             </div>
           </div>
+          {kpi.report_start && kpi.report_end && (
+            <div style={{ fontSize: 11, color: "var(--text-muted)", marginTop: 6, paddingLeft: 2 }}>
+              📅 Kỳ báo cáo: {kpi.report_start} → {kpi.report_end} (28 ngày)
+            </div>
+          )}
         </div>
       </div>
 
@@ -181,12 +208,12 @@ export function UsageMonitorDashboard({ refreshKey: _refreshKey, selectedOrgs }:
                   <thead>
                     <tr>
                       <th>{t("monitor.model")}</th>
-                      <th>{t("monitor.interactions")}</th>
-                      <th>{t("monitor.codeGen")}</th>
-                      <th>{t("monitor.codeAccept")}</th>
-                      <th>{t("monitor.acceptRate")}</th>
-                      <th>{t("monitor.locSuggested")}</th>
-                      <th>{t("monitor.locAdded")}</th>
+                      <th title="Số lần người dùng gửi prompt/chat với model này">{t("monitor.interactions")} 💬</th>
+                      <th title="Số lần model sinh code suggestion (inline completion)">{t("monitor.codeGen")} ⌨️</th>
+                      <th title="Số lần inline suggestion được chấp nhận (Tab). Không áp dụng cho Chat.">{t("monitor.codeAccept")} ✅</th>
+                      <th title="Code Accept / Code Gen × 100%. Chỉ có ý nghĩa với inline completion, không phải chat.">{t("monitor.acceptRate")} ⚠️</th>
+                      <th title="Dòng code Copilot gợi ý (chủ yếu từ Chat). CLI/Agent edit không tính vào đây.">{t("monitor.locSuggested")}</th>
+                      <th title="Dòng code thực sự được thêm vào file (CLI, Agent Edit). Chat không tính vào đây.">{t("monitor.locAdded")}</th>
                       <th>{t("monitor.topLangs")}</th>
                     </tr>
                   </thead>
@@ -275,49 +302,119 @@ export function UsageMonitorDashboard({ refreshKey: _refreshKey, selectedOrgs }:
       <Section sectionKey="featureModel" title={t("monitor.sectionFeatureModel")} infoKey="mon_featureModel">
         <div className="dashboard-charts">
           <div className="chart-card chart-card-wide">
-            <ChartTitle text={t("monitor.featureModelMatrix")} infoKey="mon_featureModelMatrix" />
-            {allFeatures.length > 0 ? (
-              <div className="dashboard-table-wrap">
-                <table className="dashboard-table">
-                  <thead>
-                    <tr>
-                      <th>{t("monitor.feature")}</th>
-                      {all_models.map((m: string, i: number) => (
-                        <th key={m}>
-                          <span style={{ display: "inline-block", width: 8, height: 8, borderRadius: "50%",
-                            background: COLORS[i % COLORS.length], marginRight: 4 }} />
-                          {shortModel(m)}
-                        </th>
-                      ))}
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {allFeatures.map((feat, ri) => (
-                      <tr key={feat} style={{ background: ri % 2 === 0 ? "var(--bg-secondary)" : "var(--bg-tertiary)" }}>
-                        <td style={{ fontWeight: 500 }}>{feat.replace(/_/g, " ")}</td>
-                        {all_models.map((m: string) => {
-                          const v = featureModelMap[feat]?.[m] ?? 0;
-                          const max = Math.max(...all_models.map((mm: string) => featureModelMap[feat]?.[mm] ?? 0));
-                          const pct = max > 0 ? (v / max) * 100 : 0;
-                          return (
-                            <td key={m} style={{ position: "relative", minWidth: 80 }}>
-                              {v > 0 && (
-                                <div style={{
-                                  position: "absolute", inset: "2px 4px",
-                                  background: `rgba(88,166,255,${pct / 200 + 0.05})`,
-                                  borderRadius: 3,
-                                }} />
-                              )}
-                              <span style={{ position: "relative" }}>{v > 0 ? v.toLocaleString() : "—"}</span>
+            {selectedFeature ? (
+              /* ── Feature drilldown: per-user usage for selected feature ── */
+              (() => {
+                const featureUsers = (user_feature ?? [])
+                  .filter((r: any) => r.feature === selectedFeature)
+                  .sort((a: any, b: any) => b.total - a.total);
+                return (
+                  <>
+                    <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 10 }}>
+                      <button
+                        className="btn btn-small"
+                        onClick={() => setSelectedFeature(null)}
+                        style={{ fontSize: 12 }}
+                      >
+                        ← {t("monitor.backToFeatures")}
+                      </button>
+                      <span style={{ fontWeight: 600, color: "var(--accent)" }}>
+                        {friendlyFeature(selectedFeature)}
+                      </span>
+                      <span style={{ color: "var(--text-muted)", fontSize: 12 }}>
+                        — {t("monitor.featureUserBreakdown")}
+                      </span>
+                    </div>
+                    {featureUsers.length > 0 ? (
+                      <div className="dashboard-table-wrap" style={{ maxHeight: 420 }}>
+                        <table className="dashboard-table">
+                          <thead>
+                            <tr>
+                              <th>{t("monitor.user")}</th>
+                              <th>{t("monitor.total")}</th>
+                              <th title="Số lần gửi prompt / chat">{t("monitor.interactions")} 💬</th>
+                              <th title="Số lần sinh code suggestion">{t("monitor.codeGen")} ⌨️</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {featureUsers.map((u: any, ri: number) => (
+                              <tr
+                                key={u.user}
+                                className="clickable-row"
+                                style={{ background: ri % 2 === 0 ? "var(--bg-secondary)" : "var(--bg-tertiary)" }}
+                                onClick={() => setDrilldownUser(u.user)}
+                              >
+                                <td style={{ fontWeight: 500 }}><span className="user-link">{u.user}</span></td>
+                                <td style={{ fontWeight: 600, color: "var(--accent)" }}>{u.total.toLocaleString()}</td>
+                                <td>{u.interactions > 0 ? u.interactions.toLocaleString() : <span style={{ color: "var(--text-muted)" }}>—</span>}</td>
+                                <td>{u.code_gen > 0 ? u.code_gen.toLocaleString() : <span style={{ color: "var(--text-muted)" }}>—</span>}</td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+                    ) : (
+                      <div className="chart-empty">{t("dashboard.noData")}</div>
+                    )}
+                  </>
+                );
+              })()
+            ) : (
+              /* ── Feature × Model matrix ── */
+              <>
+                <ChartTitle text={t("monitor.featureModelMatrix")} infoKey="mon_featureModelMatrix" />
+                {allFeatures.length > 0 ? (
+                  <div className="dashboard-table-wrap">
+                    <table className="dashboard-table">
+                      <thead>
+                        <tr>
+                          <th title="Tên tính năng Copilot. Chat features không tính Accept Rate.">{t("monitor.feature")}</th>
+                          {all_models.map((m: string, i: number) => (
+                            <th key={m}>
+                              <span style={{ display: "inline-block", width: 8, height: 8, borderRadius: "50%",
+                                background: COLORS[i % COLORS.length], marginRight: 4 }} />
+                              {shortModel(m)}
+                            </th>
+                          ))}
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {allFeatures.map((feat, ri) => (
+                          <tr
+                            key={feat}
+                            className="clickable-row"
+                            style={{ background: ri % 2 === 0 ? "var(--bg-secondary)" : "var(--bg-tertiary)", cursor: "pointer" }}
+                            onClick={() => setSelectedFeature(feat)}
+                            title={`Xem sử dụng theo người dùng cho: ${friendlyFeature(feat)}`}
+                          >
+                            <td style={{ fontWeight: 500 }}>
+                              <span className="user-link">{friendlyFeature(feat)}</span>
                             </td>
-                          );
-                        })}
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            ) : <div className="chart-empty">{t("dashboard.noData")}</div>}
+                            {all_models.map((m: string) => {
+                              const v = featureModelMap[feat]?.[m] ?? 0;
+                              const max = Math.max(...all_models.map((mm: string) => featureModelMap[feat]?.[mm] ?? 0));
+                              const pct = max > 0 ? (v / max) * 100 : 0;
+                              return (
+                                <td key={m} style={{ position: "relative", minWidth: 80 }}>
+                                  {v > 0 && (
+                                    <div style={{
+                                      position: "absolute", inset: "2px 4px",
+                                      background: `rgba(88,166,255,${pct / 200 + 0.05})`,
+                                      borderRadius: 3,
+                                    }} />
+                                  )}
+                                  <span style={{ position: "relative" }}>{v > 0 ? v.toLocaleString() : "—"}</span>
+                                </td>
+                              );
+                            })}
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                ) : <div className="chart-empty">{t("dashboard.noData")}</div>}
+              </>
+            )}
           </div>
         </div>
       </Section>
@@ -351,7 +448,7 @@ export function UsageMonitorDashboard({ refreshKey: _refreshKey, selectedOrgs }:
                         {t("monitor.user")}{sortIcon("user")}
                       </th>
                       <th onClick={() => toggleSort("total")} style={{ cursor: "pointer" }}>
-                        {t("monitor.total")}{sortIcon("total")}
+                        {t("monitor.total")} (Chat+Code){sortIcon("total")}
                       </th>
                       {all_models.map((m: string, i: number) => (
                         <th key={m} onClick={() => toggleSort(m)} style={{ cursor: "pointer" }}>
