@@ -1,44 +1,24 @@
 """
 Budget management API — set monthly budgets per org and track utilization.
-Budgets stored in data/budgets.json.
+Budgets are stored in the SQLite database (budgets table).
 """
 
 from __future__ import annotations
 
-import json
-from pathlib import Path
-
 from fastapi import APIRouter
 
-from ..config import DATA_DIR
+from ..services import database as db_module
 from ..services.api_manager import api_manager
 from ..services.data_collector import data_collector
 
 router = APIRouter(prefix="/budgets", tags=["budgets"])
 
-_BUDGETS_FILE = DATA_DIR / "budgets.json"
-
-
-def _load() -> dict:
-    if _BUDGETS_FILE.exists():
-        try:
-            with open(_BUDGETS_FILE, encoding="utf-8") as f:
-                return json.load(f)
-        except Exception:
-            pass
-    return {}
-
-
-def _save(data: dict) -> None:
-    _BUDGETS_FILE.parent.mkdir(parents=True, exist_ok=True)
-    with open(_BUDGETS_FILE, "w", encoding="utf-8") as f:
-        json.dump(data, f, indent=2, ensure_ascii=False)
-
 
 @router.get("")
 async def list_budgets():
     """Return all budget configs with current utilization."""
-    budgets = _load()
+    db = db_module.db
+    budgets = db.get_all_budgets() if db else {}
     all_billing = data_collector.load_all_latest("billing")
 
     results = []
@@ -86,21 +66,16 @@ async def set_budget(org: str, body: dict):
     if budget_usd is None or not isinstance(budget_usd, (int, float)) or budget_usd <= 0:
         return {"error": "monthly_budget_usd must be a positive number"}
 
-    budgets = _load()
-    budgets[org] = {
-        "monthly_budget_usd": float(budget_usd),
-        "note": str(body.get("note", "")),
-    }
-    _save(budgets)
+    db = db_module.db
+    if db:
+        db.set_budget(org, float(budget_usd), str(body.get("note", "")))
     return {"ok": True, "org": org, "monthly_budget_usd": budget_usd}
 
 
 @router.delete("/{org}")
 async def delete_budget(org: str):
     """Remove budget configuration for an org."""
-    budgets = _load()
-    if org not in budgets:
-        return {"error": f"No budget configured for org '{org}'"}
-    del budgets[org]
-    _save(budgets)
-    return {"ok": True}
+    db = db_module.db
+    if db and db.delete_budget(org):
+        return {"ok": True}
+    return {"error": f"No budget configured for org '{org}'"}

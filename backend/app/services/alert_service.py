@@ -2,8 +2,8 @@
 Alert service — evaluates threshold rules against current Copilot data
 and returns actionable alerts.
 
-Thresholds are stored in data/alert_config.json.
-Default thresholds if file not present:
+Thresholds are stored in the SQLite database (app_config table, key='alert_config').
+Default thresholds if not configured:
   - inactive_rate    : warn ≥ 25%, critical ≥ 40%
   - cost_waste_pct   : warn ≥ 30%, critical ≥ 50%
   - acceptance_rate  : warn ≤ 20%, critical ≤ 10%
@@ -12,17 +12,15 @@ Default thresholds if file not present:
 
 from __future__ import annotations
 
-import json
 from datetime import datetime, timezone
-from pathlib import Path
 from typing import TYPE_CHECKING
 
-from ..config import DATA_DIR
+from .. import services as _services_pkg
 
 if TYPE_CHECKING:
     from .data_collector import DataCollector
 
-_CONFIG_FILE = DATA_DIR / "alert_config.json"
+_CONFIG_KEY = "alert_config"
 
 DEFAULT_CONFIG: dict = {
     "enabled": True,
@@ -55,27 +53,31 @@ DEFAULT_CONFIG: dict = {
 }
 
 
+def _get_db():
+    from . import database as db_module
+    return db_module.db
+
+
 def load_config() -> dict:
-    if _CONFIG_FILE.exists():
-        try:
-            with open(_CONFIG_FILE, encoding="utf-8") as f:
-                cfg = json.load(f)
+    db = _get_db()
+    if db:
+        stored = db.get_config(_CONFIG_KEY)
+        if stored:
             # Merge with defaults so new threshold keys appear automatically
+            cfg = stored
             defaults = DEFAULT_CONFIG["thresholds"]
             cfg.setdefault("enabled", True)
             cfg.setdefault("thresholds", {})
             for k, v in defaults.items():
                 cfg["thresholds"].setdefault(k, v)
             return cfg
-        except Exception:
-            pass
     return dict(DEFAULT_CONFIG)
 
 
 def save_config(cfg: dict) -> None:
-    _CONFIG_FILE.parent.mkdir(parents=True, exist_ok=True)
-    with open(_CONFIG_FILE, "w", encoding="utf-8") as f:
-        json.dump(cfg, f, indent=2, ensure_ascii=False)
+    db = _get_db()
+    if db:
+        db.set_config(_CONFIG_KEY, cfg)
 
 
 def _level(value: float, warn: float, critical: float, higher_is_worse: bool = True) -> str:

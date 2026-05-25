@@ -127,6 +127,21 @@ class Database:
                 group_id         INTEGER NOT NULL REFERENCES user_groups(id) ON DELETE CASCADE,
                 PRIMARY KEY (manager_username, group_id)
             );
+
+            -- Per-org monthly budget configuration
+            CREATE TABLE IF NOT EXISTS budgets (
+                org         TEXT PRIMARY KEY,
+                budget_usd  REAL NOT NULL,
+                note        TEXT NOT NULL DEFAULT '',
+                updated_at  TEXT NOT NULL
+            );
+
+            -- Alert threshold configuration (single-row key/value store)
+            CREATE TABLE IF NOT EXISTS app_config (
+                key         TEXT PRIMARY KEY,
+                value       TEXT NOT NULL,
+                updated_at  TEXT NOT NULL
+            );
         """)
         conn.commit()
 
@@ -604,6 +619,56 @@ class Database:
             (manager_username,),
         ).fetchall()
         return [dict(r) for r in rows]
+
+    # ------------------------------------------------------------------ #
+    # Budgets                                                              #
+    # ------------------------------------------------------------------ #
+
+    def get_all_budgets(self) -> dict[str, dict]:
+        """Return all budgets as {org: {budget_usd, note}}."""
+        rows = self._conn.execute("SELECT org, budget_usd, note FROM budgets").fetchall()
+        return {r["org"]: {"monthly_budget_usd": r["budget_usd"], "note": r["note"]} for r in rows}
+
+    def set_budget(self, org: str, budget_usd: float, note: str = "") -> None:
+        """Upsert a budget for an org."""
+        ts = datetime.now(timezone.utc).isoformat()
+        with self._lock:
+            self._conn.execute(
+                """INSERT INTO budgets (org, budget_usd, note, updated_at) VALUES (?, ?, ?, ?)
+                   ON CONFLICT(org) DO UPDATE SET budget_usd=excluded.budget_usd,
+                   note=excluded.note, updated_at=excluded.updated_at""",
+                (org, budget_usd, note, ts),
+            )
+            self._conn.commit()
+
+    def delete_budget(self, org: str) -> bool:
+        """Delete a budget. Returns True if a row was deleted."""
+        with self._lock:
+            cur = self._conn.execute("DELETE FROM budgets WHERE org = ?", (org,))
+            self._conn.commit()
+            return cur.rowcount > 0
+
+    # ------------------------------------------------------------------ #
+    # App config (alert thresholds, etc.)                                 #
+    # ------------------------------------------------------------------ #
+
+    def get_config(self, key: str) -> dict | None:
+        """Return a config value by key (parsed from JSON), or None."""
+        row = self._conn.execute(
+            "SELECT value FROM app_config WHERE key = ?", (key,)
+        ).fetchone()
+        return json.loads(row["value"]) if row else None
+
+    def set_config(self, key: str, value: dict) -> None:
+        """Upsert a config entry by key."""
+        ts = datetime.now(timezone.utc).isoformat()
+        with self._lock:
+            self._conn.execute(
+                """INSERT INTO app_config (key, value, updated_at) VALUES (?, ?, ?)
+                   ON CONFLICT(key) DO UPDATE SET value=excluded.value, updated_at=excluded.updated_at""",
+                (key, json.dumps(value, ensure_ascii=False), ts),
+            )
+            self._conn.commit()
 
 
 # Global database instance — initialized in main.py lifespan
