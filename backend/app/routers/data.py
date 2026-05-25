@@ -41,7 +41,7 @@ def _get_scope_usernames(request: Request, group_id: int | None = None) -> set[s
     if user["role"] == "super_admin":
         if group_id:
             members = db.get_group_members(group_id)
-            return set(members) if members else None
+            return set(u.lower().lstrip("@") for u in members) if members else None
         return None  # super_admin, no group filter
 
     # manager: always restricted to their assigned groups
@@ -49,7 +49,7 @@ def _get_scope_usernames(request: Request, group_id: int | None = None) -> set[s
     if not gids:
         return set()  # manager with no groups sees nothing
     usernames = db.get_all_group_usernames(gids)
-    return set(u.lower() for u in usernames)
+    return set(u.lower().lstrip("@") for u in usernames)
 
 
 @router.get("/data/orgs")
@@ -135,8 +135,9 @@ async def get_orgs():
 
 
 @router.get("/data/overview")
-async def get_overview():
-    """Get a quick overview across all organizations."""
+async def get_overview(request: Request):
+    """Get a quick overview across all organizations, scoped to the current user's group if a manager."""
+    scope_users = _get_scope_usernames(request)
     all_scope_names = _get_all_scope_names()
     total_seats = 0
     total_active = 0
@@ -159,8 +160,16 @@ async def get_overview():
         # it avoids the mismatch where total_seats < len(seats_list).
         if seats_data:
             seats_list = seats_data.get("seats", [])
+            # Apply group scope filter for managers
+            if scope_users is not None:
+                seats_list = [
+                    s for s in seats_list
+                    if (s.get("assignee") or {}).get("login", "").lower() in scope_users
+                ]
             # Use API total_seats for billing cost, fall back to list length
             billing_seats = seats_data.get("total_seats", 0) or len(seats_list)
+            if scope_users is not None:
+                billing_seats = len(seats_list)
             seats = len(seats_list)  # display/count total
             now = datetime.now(timezone.utc)
             active = 0
@@ -278,7 +287,7 @@ async def get_dashboard(request: Request, orgs: str = Query(default=""), group_i
             a = 0
             for seat in seats_list:
                 login = (seat.get("assignee") or {}).get("login", "")
-                if login not in scope_users:
+                if login.lower() not in scope_users:
                     continue
                 s += 1
                 last = seat.get("last_activity_at")

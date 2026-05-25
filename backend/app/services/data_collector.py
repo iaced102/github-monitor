@@ -549,7 +549,13 @@ class DataCollector:
         if log_fn:
             org_part = f": {', '.join(org_logins)}" if org_logins else ""
             ent_part = f" [enterprises: {', '.join(e['slug'] for e in enterprises)}]" if enterprises else ""
-            log_fn("info", f"Starting sync for {len(org_logins)} org(s) and {len(enterprises)} enterprise(s){ent_part}{org_part}")
+            parts = []
+            if org_logins:
+                parts.append(f"{len(org_logins)} org(s){org_part}")
+            if enterprises:
+                parts.append(f"{len(enterprises)} enterprise(s){ent_part}")
+            scope_desc = " and ".join(parts) if parts else "no configured scopes"
+            log_fn("info", f"Starting sync for {scope_desc}")
 
         results = []
         for org_name in org_logins:

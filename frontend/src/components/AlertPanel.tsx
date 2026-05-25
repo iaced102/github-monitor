@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import { useI18n } from "../contexts/I18nContext";
 
 interface Alert {
@@ -67,6 +67,7 @@ export function AlertPanel() {
   const [saving, setSaving] = useState(false);
   const [savedMsg, setSavedMsg] = useState("");
   const [draftConfig, setDraftConfig] = useState<AlertConfig | null>(null);
+  const configRef = useRef<HTMLDivElement | null>(null);
 
   const refresh = useCallback(() => {
     setLoading(true);
@@ -139,7 +140,13 @@ export function AlertPanel() {
         </span>
         <button
           className="btn btn-small btn-toggle"
-          onClick={() => { setConfigOpen(!configOpen); }}
+          onClick={() => {
+            const next = !configOpen;
+            setConfigOpen(next);
+            if (next) {
+              setTimeout(() => configRef.current?.scrollIntoView({ behavior: "smooth", block: "nearest" }), 50);
+            }
+          }}
         >
           ⚙ {t("alerts.configure")}
         </button>
@@ -168,7 +175,7 @@ export function AlertPanel() {
       )}
 
       {configOpen && draftConfig && (
-        <div className="alert-config">
+        <div className="alert-config" ref={configRef}>
           <div className="alert-config-row">
             <label>
               <input

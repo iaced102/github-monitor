@@ -186,7 +186,7 @@ export function UsageMonitorDashboard({ refreshKey: _refreshKey, selectedOrgs }:
                     }))}
                     dataKey="value" nameKey="name"
                     cx="50%" cy="50%" outerRadius={90}
-                    label={({ name, percent }: any) => `${name} ${((percent || 0) * 100).toFixed(0)}%`}
+                    label={({ percent }: any) => (percent || 0) >= 0.05 ? `${((percent || 0) * 100).toFixed(0)}%` : ""}
                     labelLine={false}
                   >
                     {model_totals.map((_: any, i: number) => (
@@ -194,6 +194,7 @@ export function UsageMonitorDashboard({ refreshKey: _refreshKey, selectedOrgs }:
                     ))}
                   </Pie>
                   <Tooltip contentStyle={TOOLTIP_STYLE} />
+                  <Legend wrapperStyle={{ fontSize: "11px" }} />
                 </PieChart>
               </ResponsiveContainer>
             ) : <div className="chart-empty">{t("dashboard.noData")}</div>}
