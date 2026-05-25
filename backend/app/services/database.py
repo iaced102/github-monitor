@@ -57,6 +57,19 @@ class Database:
             CREATE INDEX IF NOT EXISTS idx_snapshots_lookup
                 ON data_snapshots(category, org, created_at DESC);
 
+            -- Per-day data storage: each (category, org, day) is unique — UPSERT on sync
+            CREATE TABLE IF NOT EXISTS data_daily (
+                id          INTEGER PRIMARY KEY AUTOINCREMENT,
+                category    TEXT NOT NULL,
+                org         TEXT NOT NULL,
+                day         TEXT NOT NULL,
+                data        TEXT NOT NULL,
+                updated_at  TEXT NOT NULL,
+                UNIQUE(category, org, day)
+            );
+            CREATE INDEX IF NOT EXISTS idx_daily_lookup
+                ON data_daily(category, org, day);
+
             CREATE TABLE IF NOT EXISTS recommendations (
                 id                          TEXT PRIMARY KEY,
                 created_at                  TEXT NOT NULL,
@@ -156,6 +169,58 @@ class Database:
             (category,),
         ).fetchall()
         return {row["org"]: json.loads(row["data"]) for row in rows}
+
+    # ------------------------------------------------------------------ #
+    # Per-day data (usage, usage_users)                                   #
+    # ------------------------------------------------------------------ #
+
+    def save_daily(self, category: str, org: str, day: str, data: dict | list):
+        """Upsert one day's data for (category, org, day)."""
+        ts = datetime.now(timezone.utc).isoformat()
+        serialized = json.dumps(data, default=str)
+        with self._lock:
+            self._conn.execute(
+                """INSERT INTO data_daily (category, org, day, data, updated_at)
+                   VALUES (?, ?, ?, ?, ?)
+                   ON CONFLICT(category, org, day) DO UPDATE SET
+                       data = excluded.data,
+                       updated_at = excluded.updated_at""",
+                (category, org, day, serialized, ts),
+            )
+            self._conn.commit()
+
+    def load_daily(
+        self, category: str, org: str,
+        start_day: str | None = None, end_day: str | None = None,
+    ) -> list[dict]:
+        """Return daily rows for (category, org), optionally filtered by day range.
+        Each row is {"day": ..., "data": ...} sorted by day ascending."""
+        query = "SELECT day, data FROM data_daily WHERE category = ? AND org = ?"
+        params: list = [category, org]
+        if start_day:
+            query += " AND day >= ?"
+            params.append(start_day)
+        if end_day:
+            query += " AND day <= ?"
+            params.append(end_day)
+        query += " ORDER BY day ASC"
+        rows = self._conn.execute(query, params).fetchall()
+        return [{"day": r["day"], "data": json.loads(r["data"])} for r in rows]
+
+    def has_daily_data(self, category: str, org: str) -> bool:
+        """Return True if there is any per-day data for (category, org)."""
+        row = self._conn.execute(
+            "SELECT 1 FROM data_daily WHERE category = ? AND org = ? LIMIT 1",
+            (category, org),
+        ).fetchone()
+        return row is not None
+
+    def load_all_daily_orgs(self, category: str) -> list[str]:
+        """Return all orgs that have daily data for the given category."""
+        rows = self._conn.execute(
+            "SELECT DISTINCT org FROM data_daily WHERE category = ?", (category,)
+        ).fetchall()
+        return [r["org"] for r in rows]
 
     # ------------------------------------------------------------------ #
     # Recommendations                                                      #

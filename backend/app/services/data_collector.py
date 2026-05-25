@@ -67,10 +67,17 @@ class DataCollector:
         return None
 
     def _save_json(self, category: str, org: str, data: dict | list) -> Path:
-        """Persist data: uses SQLite when DB is available, otherwise JSON files."""
+        """Persist data: uses SQLite when DB is available, otherwise JSON files.
+        For 'usage' and 'usage_users', data is broken into per-day rows (UPSERT).
+        All other categories are stored as a single snapshot blob.
+        """
         if self._db is not None:
-            self._db.save_snapshot(category, org, data)
-            # Return a dummy path for callers that use the return value as a log reference
+            if category == "usage":
+                self._save_usage_daily(org, data)
+            elif category == "usage_users":
+                self._save_usage_users_daily(org, data)
+            else:
+                self._db.save_snapshot(category, org, data)
             return self._data_dir / category / f"{org}_latest.json"
 
         # JSON file fallback (session-scoped collectors)
@@ -84,9 +91,70 @@ class DataCollector:
         latest.write_text(json.dumps(data, indent=2, default=str), encoding="utf-8")
         return filepath
 
+    def _save_usage_daily(self, org: str, usage_report: dict):
+        """Break org-level usage report into per-day rows and upsert each."""
+        records = usage_report.get("records", [])
+        for record in records:
+            day_totals = record.get("day_totals", [])
+            meta = {k: v for k, v in record.items() if k != "day_totals"}
+            for day_total in day_totals:
+                day = day_total.get("day")
+                if day:
+                    self._db.save_daily("usage", org, day, {**meta, **day_total})
+
+    def _save_usage_users_daily(self, org: str, users_report: dict):
+        """Group user-level usage records by day and upsert each day's batch."""
+        records = users_report.get("records", [])
+        by_day: dict[str, list] = {}
+        for rec in records:
+            day = rec.get("day")
+            if day:
+                by_day.setdefault(day, []).append(rec)
+        for day, day_records in by_day.items():
+            self._db.save_daily("usage_users", org, day, day_records)
+
+    @staticmethod
+    def _reconstruct_usage_from_daily(rows: list[dict]) -> dict | None:
+        """Reconstruct the original usage report format from per-day rows."""
+        if not rows:
+            return None
+        first = rows[0]["data"]
+        meta_keys = ("report_start_day", "report_end_day", "enterprise_id", "created_at")
+        meta = {k: first.get(k) for k in meta_keys if k in first}
+        day_totals = [r["data"] for r in rows]
+        return {
+            "records": [{**meta, "day_totals": day_totals}],
+            "total_records": len(day_totals),
+            "report_start_day": rows[0]["day"],
+            "report_end_day": rows[-1]["day"],
+            "download_links_count": 0,
+        }
+
+    @staticmethod
+    def _reconstruct_usage_users_from_daily(rows: list[dict]) -> dict | None:
+        """Reconstruct the original usage_users report format from per-day rows."""
+        if not rows:
+            return None
+        all_records: list = []
+        for r in rows:
+            all_records.extend(r["data"])
+        return {
+            "records": all_records,
+            "total_records": len(all_records),
+            "report_start_day": rows[0]["day"],
+            "report_end_day": rows[-1]["day"],
+            "download_links_count": 0,
+        }
+
     def load_latest(self, category: str, org: str) -> dict | list | None:
         """Load the latest data. Checks DB first, then primary JSON dir, then fallback."""
         if self._db is not None:
+            if category == "usage" and self._db.has_daily_data("usage", org):
+                rows = self._db.load_daily("usage", org)
+                return self._reconstruct_usage_from_daily(rows)
+            if category == "usage_users" and self._db.has_daily_data("usage_users", org):
+                rows = self._db.load_daily("usage_users", org)
+                return self._reconstruct_usage_users_from_daily(rows)
             result = self._db.load_latest_snapshot(category, org)
             if result is not None:
                 return result
@@ -98,7 +166,6 @@ class DataCollector:
 
         # Try fallback directory
         if self._fallback_dir:
-            # Try DB in fallback (not applicable for session collectors)
             fallback_path = self._fallback_dir / category / f"{org}_latest.json"
             if fallback_path.exists():
                 return json.loads(fallback_path.read_text(encoding="utf-8"))
@@ -108,35 +175,62 @@ class DataCollector:
     def load_all_latest(self, category: str) -> dict[str, dict | list]:
         """Load latest data for all orgs. Uses DB when available, fills from JSON fallback."""
         if self._db is not None:
+            if category in ("usage", "usage_users"):
+                orgs = self._db.load_all_daily_orgs(category)
+                result: dict[str, dict | list] = {}
+                for org in orgs:
+                    rows = self._db.load_daily(category, org)
+                    if category == "usage":
+                        rec = self._reconstruct_usage_from_daily(rows)
+                    else:
+                        rec = self._reconstruct_usage_users_from_daily(rows)
+                    if rec:
+                        result[org] = rec
+                category_dir = self._data_dir / category
+                if category_dir.exists():
+                    for f in category_dir.glob("*_latest.json"):
+                        org_name = f.name.replace("_latest.json", "")
+                        if org_name not in result:
+                            result[org_name] = json.loads(f.read_text(encoding="utf-8"))
+                return result
+
             result = self._db.load_all_latest_snapshots(category)
-            # Fill any missing orgs from JSON files (legacy data not yet in DB)
             category_dir = self._data_dir / category
             if category_dir.exists():
                 for f in category_dir.glob("*_latest.json"):
-                    org = f.name.replace("_latest.json", "")
-                    if org not in result:
-                        result[org] = json.loads(f.read_text(encoding="utf-8"))
+                    org_name = f.name.replace("_latest.json", "")
+                    if org_name not in result:
+                        result[org_name] = json.loads(f.read_text(encoding="utf-8"))
             return result
 
         result = {}
-
-        # Read from primary directory
         category_dir = self._data_dir / category
         if category_dir.exists():
             for f in category_dir.glob("*_latest.json"):
-                org = f.name.replace("_latest.json", "")
-                result[org] = json.loads(f.read_text(encoding="utf-8"))
+                org_name = f.name.replace("_latest.json", "")
+                result[org_name] = json.loads(f.read_text(encoding="utf-8"))
 
-        # Fill missing orgs from fallback directory
         if self._fallback_dir:
             fallback_dir = self._fallback_dir / category
             if fallback_dir.exists():
                 for f in fallback_dir.glob("*_latest.json"):
-                    org = f.name.replace("_latest.json", "")
-                    if org not in result:
-                        result[org] = json.loads(f.read_text(encoding="utf-8"))
+                    org_name = f.name.replace("_latest.json", "")
+                    if org_name not in result:
+                        result[org_name] = json.loads(f.read_text(encoding="utf-8"))
 
         return result
+
+    def load_daily(
+        self, category: str, org: str,
+        start_day: str | None = None, end_day: str | None = None,
+    ) -> list[dict] | None:
+        """Load per-day rows for usage/usage_users with optional date range filter.
+        Returns list of {"day": ..., "data": ...} or None if DB not available."""
+        if self._db is None:
+            return None
+        return self._db.load_daily(category, org, start_day=start_day, end_day=end_day)
+
+
 
     async def sync_org(self, org: str, log_fn: LogFn = None) -> dict:
         """Sync all Copilot data for a single org. Returns summary."""
