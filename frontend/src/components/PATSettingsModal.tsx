@@ -2,6 +2,8 @@ import { useEffect } from "react";
 import { useI18n } from "../contexts/I18nContext";
 import { usePATs } from "../hooks/usePATs";
 
+// PAT management is configured via GITHUB_PAT in .env — no UI needed.
+
 interface Props {
   onClose: () => void;
   onPATChange?: () => void;
@@ -40,7 +42,7 @@ function describeCron(cron: string): string {
 
 export function PATSettingsModal({ onClose, onPATChange: _onPATChange }: Props) {
   const { t } = useI18n();
-  const { pats, settings, updateSettings } = usePATs();
+  const { settings, updateSettings } = usePATs();
 
   useEffect(() => {
     const handler = (e: KeyboardEvent) => { if (e.key === "Escape") onClose(); };
@@ -57,39 +59,6 @@ export function PATSettingsModal({ onClose, onPATChange: _onPATChange }: Props) 
         </div>
 
         <div className="settings-modal-body">
-          {/* Connected accounts — read-only, configured via .env */}
-          {pats.length > 0 && (
-            <>
-              <h3>{t("settings.pats")}</h3>
-              <div className="pat-list">
-                {pats.map((pat) => (
-                  <div key={pat.id} className="pat-item">
-                    <div className="pat-item-left">
-                      {pat.user_avatar && (
-                        <img src={pat.user_avatar} alt={pat.user_login} className="pat-avatar" />
-                      )}
-                      <div className="pat-item-info">
-                        <div className="pat-item-user">
-                          <strong>{pat.user_login || "Validating..."}</strong>
-                          {(pat.orgs?.length > 0 || !pat.enterprise_slugs?.length) && (
-                            <span className="pat-item-orgs">{pat.orgs?.length || 0} orgs</span>
-                          )}
-                          {pat.enterprise_slugs?.length > 0 && (
-                            <span className="pat-item-enterprise">{pat.enterprise_slugs.join(", ")}</span>
-                          )}
-                        </div>
-                        <div className="pat-item-meta">{pat.label} &middot; {pat.token_masked}</div>
-                      </div>
-                    </div>
-                  </div>
-                ))}
-              </div>
-              <p className="pat-form-hint">
-                Cấu hình GitHub PAT qua biến môi trường <code>GITHUB_PAT</code> trong file <code>.env</code>.
-              </p>
-            </>
-          )}
-
           {/* Sync Settings */}
           <div className="sync-settings">
             <h3>{t("settings.syncSettings")}</h3>
