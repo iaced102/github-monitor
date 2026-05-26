@@ -70,6 +70,7 @@ export function UsageMonitorDashboard({ refreshKey: _refreshKey, selectedOrgs }:
   const { t } = useI18n();
   const ui = useUIState();
   const { data, loading } = useUsageMonitor(selectedOrgs, ui.selectedGroupId);
+  const isGroupFiltered = !!ui.selectedGroupId;
   const [userSearch, setUserSearch] = useState("");
   const [userSort, setUserSort] = useState<"total" | string>("total");
   const [userSortDir, setUserSortDir] = useState<"desc" | "asc">("desc");
@@ -83,7 +84,8 @@ export function UsageMonitorDashboard({ refreshKey: _refreshKey, selectedOrgs }:
     return <div className="dashboard-empty">{t("dashboard.noData")}</div>;
   }
 
-  const { kpi, model_totals, model_feature, model_language, daily_trend, all_models, user_model, user_feature } = data;
+  const { kpi, model_totals, model_feature, model_language, daily_trend, all_models, user_model, user_feature,
+          feature_totals = [], ide_totals = [], lang_totals = [], pr_totals = {}, cli_totals = {}, user_flags = [] } = data;
 
   // Unique features for the feature×model table
   const allFeatures = [...new Set<string>(model_feature.map((r: any) => r.feature))].sort();
@@ -110,6 +112,10 @@ export function UsageMonitorDashboard({ refreshKey: _refreshKey, selectedOrgs }:
   };
 
   const sortIcon = (col: string) => userSort === col ? (userSortDir === "desc" ? " ▼" : " ▲") : "";
+
+  // Build user_flags lookup map: login -> flags
+  const userFlagsMap: Record<string, any> = {};
+  for (const f of user_flags) userFlagsMap[f.user] = f;
 
   // Top languages per model
   const topLangByModel: Record<string, { language: string; code_gen: number }[]> = {};
@@ -172,6 +178,46 @@ export function UsageMonitorDashboard({ refreshKey: _refreshKey, selectedOrgs }:
               </div>
             );
           })()}
+          {/* Warning when group filter returns no matching users */}
+          {isGroupFiltered && kpi.active_users === 0 && (
+            <div style={{
+              marginTop: 10, padding: "8px 12px", borderRadius: 6,
+              background: "rgba(210, 153, 34, 0.12)", border: "1px solid var(--warning, #d29922)",
+              color: "var(--warning, #d29922)", fontSize: 12,
+            }}>
+              ⚠️ Không tìm thấy dữ liệu usage cho bất kỳ thành viên nào trong nhóm này.
+              Vui lòng kiểm tra lại GitHub username trong cấu hình nhóm (tab <strong>Nhóm người dùng</strong>).
+            </div>
+          )}
+          {/* LOC + feature + IDE KPI row */}
+          <div className="dashboard-kpi" style={{ marginTop: 12 }}>
+            <div className="stat-card">
+              <div className="stat-value">{(kpi.loc_suggested ?? 0).toLocaleString()}</div>
+              <div className="stat-label" title="Dòng code Copilot gợi ý (Chat/Completion)">LOC ĐỀ XUẤT 📝</div>
+            </div>
+            <div className="stat-card">
+              <div className="stat-value">{(kpi.loc_added ?? 0).toLocaleString()}</div>
+              <div className="stat-label" title="Dòng code thực sự thêm vào (bao gồm CLI & Agent Edit)">LOC ĐƯỢC THÊM ✅</div>
+            </div>
+            <div className="stat-card">
+              <div className="stat-value" style={{ fontSize: 12, wordBreak: "break-all" }}>
+                {friendlyFeature(kpi.top_feature ?? "—")}
+              </div>
+              <div className="stat-label">TÍNH NĂNG PHỔ BIẾN NHẤT</div>
+            </div>
+            <div className="stat-card">
+              <div className="stat-value">{kpi.top_ide ? kpi.top_ide.toUpperCase() : "—"}</div>
+              <div className="stat-label">IDE PHỔ BIẾN NHẤT</div>
+            </div>
+            <div className="stat-card">
+              <div className="stat-value">{kpi.users_with_agent ?? 0}</div>
+              <div className="stat-label">DÙNG AGENT 🤖</div>
+            </div>
+            <div className="stat-card">
+              <div className="stat-value">{kpi.users_with_cli ?? 0}</div>
+              <div className="stat-label">DÙNG CLI 🖥️</div>
+            </div>
+          </div>
         </div>
       </div>
 
@@ -456,6 +502,11 @@ export function UsageMonitorDashboard({ refreshKey: _refreshKey, selectedOrgs }:
                       <th onClick={() => toggleSort("total")} style={{ cursor: "pointer" }}>
                         {t("monitor.total")} (Chat+Code){sortIcon("total")}
                       </th>
+                      <th title="IDE đang dùng">IDE</th>
+                      <th title="Có dùng Agent mode không">🤖 Agent</th>
+                      <th title="Có dùng Chat không">💬 Chat</th>
+                      <th title="Có dùng CLI không">🖥️ CLI</th>
+                      <th title="Có dùng Copilot Coding Agent không">🏭 Coding Agent</th>
                       {all_models.map((m: string, i: number) => (
                         <th key={m} onClick={() => toggleSort(m)} style={{ cursor: "pointer" }}>
                           <span style={{ display: "inline-block", width: 8, height: 8, borderRadius: "50%",
@@ -466,17 +517,26 @@ export function UsageMonitorDashboard({ refreshKey: _refreshKey, selectedOrgs }:
                     </tr>
                   </thead>
                   <tbody>
-                    {filteredUsers.map((u: any, ri: number) => (
-                      <tr key={u.user} className="clickable-row" style={{ background: ri % 2 === 0 ? "var(--bg-secondary)" : "var(--bg-tertiary)" }}
-                        onClick={() => setDrilldownUser(u.user)}>
-                        <td style={{ fontWeight: 500 }}><span className="user-link">{u.user}</span></td>
-                        <td style={{ fontWeight: 600, color: "var(--accent)" }}>{(u.total ?? 0).toLocaleString()}</td>
-                        {all_models.map((m: string) => {
-                          const v = u[m] ?? 0;
-                          return <td key={m}>{v > 0 ? v.toLocaleString() : <span style={{ color: "var(--text-muted)" }}>—</span>}</td>;
-                        })}
-                      </tr>
-                    ))}
+                    {filteredUsers.map((u: any, ri: number) => {
+                      const flags = userFlagsMap[u.user] ?? {};
+                      const ides: string[] = flags.ides ?? [];
+                      return (
+                        <tr key={u.user} className="clickable-row" style={{ background: ri % 2 === 0 ? "var(--bg-secondary)" : "var(--bg-tertiary)" }}
+                          onClick={() => setDrilldownUser(u.user)}>
+                          <td style={{ fontWeight: 500 }}><span className="user-link">{u.user}</span></td>
+                          <td style={{ fontWeight: 600, color: "var(--accent)" }}>{(u.total ?? 0).toLocaleString()}</td>
+                          <td style={{ fontSize: 11, color: "var(--text-muted)" }}>{ides.length > 0 ? ides.join(", ").toUpperCase() : "—"}</td>
+                          <td style={{ textAlign: "center" }}>{flags.used_agent ? "✅" : <span style={{ color: "var(--text-muted)" }}>—</span>}</td>
+                          <td style={{ textAlign: "center" }}>{flags.used_chat ? "✅" : <span style={{ color: "var(--text-muted)" }}>—</span>}</td>
+                          <td style={{ textAlign: "center" }}>{flags.used_cli ? "✅" : <span style={{ color: "var(--text-muted)" }}>—</span>}</td>
+                          <td style={{ textAlign: "center" }}>{flags.used_coding_agent ? "✅" : <span style={{ color: "var(--text-muted)" }}>—</span>}</td>
+                          {all_models.map((m: string) => {
+                            const v = u[m] ?? 0;
+                            return <td key={m}>{v > 0 ? v.toLocaleString() : <span style={{ color: "var(--text-muted)" }}>—</span>}</td>;
+                          })}
+                        </tr>
+                      );
+                    })}
                   </tbody>
                 </table>
               </div>
@@ -505,6 +565,197 @@ export function UsageMonitorDashboard({ refreshKey: _refreshKey, selectedOrgs }:
               </ResponsiveContainer>
             </div>
           )}
+        </div>
+      </Section>
+
+      {/* ── Feature Breakdown ────────────────────────────────────────────── */}
+      <Section sectionKey="featureBreakdown" title="📊 Phân tích theo tính năng" infoKey="mon_featureBreakdown">
+        <div className="dashboard-charts">
+          {/* Feature horizontal bar chart */}
+          <div className="chart-card">
+            <ChartTitle text="Hoạt động theo tính năng" />
+            {feature_totals.length > 0 ? (
+              <ResponsiveContainer width="100%" height={Math.max(180, feature_totals.length * 36)}>
+                <BarChart data={feature_totals.map((f: any) => ({
+                  feature: friendlyFeature(f.feature),
+                  "Chat/Interact": f.interactions,
+                  "Code Gen": f.code_gen,
+                }))} layout="vertical">
+                  <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" />
+                  <XAxis type="number" tick={{ fontSize: 11, fill: "var(--text-muted)" }} />
+                  <YAxis dataKey="feature" type="category" width={160} tick={{ fontSize: 11, fill: "var(--text-muted)" }} />
+                  <Tooltip contentStyle={TOOLTIP_STYLE} />
+                  <Legend wrapperStyle={{ fontSize: 11 }} />
+                  <Bar dataKey="Chat/Interact" stackId="1" fill={COLORS[0]} />
+                  <Bar dataKey="Code Gen" stackId="1" fill={COLORS[1]} radius={[0, 4, 4, 0]} />
+                </BarChart>
+              </ResponsiveContainer>
+            ) : <div className="chart-empty">Không có dữ liệu</div>}
+          </div>
+
+          {/* Feature LOC table */}
+          <div className="chart-card chart-card-wide">
+            <ChartTitle text="Thống kê LOC theo tính năng" />
+            {feature_totals.length > 0 ? (
+              <div className="dashboard-table-wrap">
+                <table className="dashboard-table">
+                  <thead>
+                    <tr>
+                      <th>Tính năng</th>
+                      <th title="Số lần chat/prompt">Interactions 💬</th>
+                      <th title="Số lần sinh code">Code Gen ⌨️</th>
+                      <th title="Số lần accept inline">Code Accept ✅</th>
+                      <th title="Dòng code AI gợi ý">LOC Đề xuất 📝</th>
+                      <th title="Dòng code thực sự được thêm">LOC Thêm vào ✅</th>
+                      <th title="LOC Added / LOC Suggested">LOC Accept %</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {feature_totals.map((f: any, i: number) => {
+                      const locRate = f.loc_suggested > 0 ? ((f.loc_added / f.loc_suggested) * 100).toFixed(1) : "—";
+                      return (
+                        <tr key={f.feature} style={{ background: i % 2 === 0 ? "var(--bg-secondary)" : "var(--bg-tertiary)" }}>
+                          <td style={{ fontWeight: 500 }}>{friendlyFeature(f.feature)}</td>
+                          <td>{f.interactions > 0 ? f.interactions.toLocaleString() : "—"}</td>
+                          <td>{f.code_gen > 0 ? f.code_gen.toLocaleString() : "—"}</td>
+                          <td>{f.code_accept > 0 ? f.code_accept.toLocaleString() : "—"}</td>
+                          <td>{f.loc_suggested > 0 ? f.loc_suggested.toLocaleString() : "—"}</td>
+                          <td>{f.loc_added > 0 ? f.loc_added.toLocaleString() : "—"}</td>
+                          <td>{locRate}{locRate !== "—" ? "%" : ""}</td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            ) : <div className="chart-empty">Không có dữ liệu</div>}
+          </div>
+        </div>
+      </Section>
+
+      {/* ── IDE & Language Breakdown ──────────────────────────────────────── */}
+      <Section sectionKey="ideLang" title="🖥️ IDE & Ngôn ngữ lập trình">
+        <div className="dashboard-charts">
+          {/* IDE Pie */}
+          <div className="chart-card">
+            <ChartTitle text="IDE đang sử dụng" />
+            {ide_totals.length > 0 ? (
+              <>
+                <ResponsiveContainer width="100%" height={220}>
+                  <PieChart>
+                    <Pie
+                      data={ide_totals.map((d: any) => ({ name: d.ide.toUpperCase(), value: d.interactions + d.code_gen }))}
+                      dataKey="value" nameKey="name"
+                      cx="50%" cy="50%" outerRadius={80}
+                      label={({ name, percent }: any) => `${name} ${((percent || 0) * 100).toFixed(0)}%`}
+                    >
+                      {ide_totals.map((_: any, i: number) => <Cell key={i} fill={COLORS[i % COLORS.length]} />)}
+                    </Pie>
+                    <Tooltip contentStyle={TOOLTIP_STYLE} />
+                  </PieChart>
+                </ResponsiveContainer>
+                <div className="dashboard-table-wrap" style={{ marginTop: 8 }}>
+                  <table className="dashboard-table">
+                    <thead>
+                      <tr><th>IDE</th><th>Interactions</th><th>Code Gen</th><th>LOC Gợi ý</th><th>LOC Thêm</th></tr>
+                    </thead>
+                    <tbody>
+                      {ide_totals.map((d: any, i: number) => (
+                        <tr key={d.ide} style={{ background: i % 2 === 0 ? "var(--bg-secondary)" : "var(--bg-tertiary)" }}>
+                          <td style={{ fontWeight: 600 }}>
+                            <span style={{ display: "inline-block", width: 8, height: 8, borderRadius: "50%", background: COLORS[i % COLORS.length], marginRight: 6 }} />
+                            {d.ide.toUpperCase()}
+                          </td>
+                          <td>{d.interactions.toLocaleString()}</td>
+                          <td>{d.code_gen.toLocaleString()}</td>
+                          <td>{d.loc_suggested.toLocaleString()}</td>
+                          <td>{d.loc_added.toLocaleString()}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </>
+            ) : <div className="chart-empty">Không có dữ liệu</div>}
+          </div>
+
+          {/* Top Languages */}
+          <div className="chart-card chart-card-wide">
+            <ChartTitle text="Top ngôn ngữ lập trình (theo Code Gen)" />
+            {lang_totals.length > 0 ? (
+              <ResponsiveContainer width="100%" height={Math.max(200, lang_totals.length * 26)}>
+                <BarChart data={lang_totals.map((l: any) => ({
+                  lang: l.language,
+                  "Code Gen": l.code_gen,
+                  "Code Accept": l.code_accept,
+                  "LOC Gợi ý": l.loc_suggested,
+                }))} layout="vertical">
+                  <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" />
+                  <XAxis type="number" tick={{ fontSize: 11, fill: "var(--text-muted)" }} />
+                  <YAxis dataKey="lang" type="category" width={90} tick={{ fontSize: 11, fill: "var(--text-muted)" }} />
+                  <Tooltip contentStyle={TOOLTIP_STYLE} />
+                  <Legend wrapperStyle={{ fontSize: 11 }} />
+                  <Bar dataKey="Code Gen" fill={COLORS[0]} radius={[0, 4, 4, 0]} />
+                </BarChart>
+              </ResponsiveContainer>
+            ) : <div className="chart-empty">Không có dữ liệu</div>}
+          </div>
+        </div>
+      </Section>
+
+      {/* ── Pull Requests & CLI ───────────────────────────────────────────── */}
+      <Section sectionKey="prCli" title="🔀 Pull Requests & CLI" defaultOpen={false}>
+        <div className="dashboard-charts">
+          {/* PR stats */}
+          <div className="chart-card">
+            <ChartTitle text="Pull Request Copilot" />
+            <div className="dashboard-kpi" style={{ flexWrap: "wrap", gap: 8 }}>
+              {[
+                { label: "PR Tạo bởi Copilot", key: "total_created_by_copilot", icon: "🤖" },
+                { label: "PR Review bởi Copilot", key: "total_reviewed_by_copilot", icon: "👀" },
+                { label: "PR đã Merge", key: "total_merged", icon: "✅" },
+                { label: "Suggestions đề xuất", key: "total_copilot_suggestions", icon: "💡" },
+                { label: "Suggestions được apply", key: "total_copilot_applied_suggestions", icon: "✔️" },
+              ].map(({ label, key, icon }) => (
+                <div className="stat-card" key={key} style={{ minWidth: 120 }}>
+                  <div className="stat-value">{((pr_totals as any)[key] ?? 0).toLocaleString()}</div>
+                  <div className="stat-label">{icon} {label}</div>
+                </div>
+              ))}
+            </div>
+            <div style={{ fontSize: 11, color: "var(--text-muted)", marginTop: 8 }}>
+              * Số liệu PR là tổng toàn org, không lọc theo group
+            </div>
+          </div>
+
+          {/* CLI stats */}
+          <div className="chart-card">
+            <ChartTitle text="Copilot CLI Usage" />
+            <div className="dashboard-kpi" style={{ flexWrap: "wrap", gap: 8 }}>
+              {[
+                { label: "Sessions", key: "session_count", icon: "🖥️" },
+                { label: "Requests", key: "request_count", icon: "📤" },
+                { label: "Prompts", key: "prompt_count", icon: "💬" },
+                { label: "Output Tokens", key: "output_tokens", icon: "📊" },
+              ].map(({ label, key, icon }) => (
+                <div className="stat-card" key={key} style={{ minWidth: 120 }}>
+                  <div className="stat-value">{((cli_totals as any)[key] ?? 0).toLocaleString()}</div>
+                  <div className="stat-label">{icon} {label}</div>
+                </div>
+              ))}
+            </div>
+            {(cli_totals as any).prompt_tokens > 0 && (
+              <div style={{ marginTop: 12, fontSize: 12, color: "var(--text-muted)" }}>
+                📥 Prompt tokens: {((cli_totals as any).prompt_tokens ?? 0).toLocaleString()} &nbsp;
+                (avg {(cli_totals as any).request_count > 0
+                  ? Math.round(((cli_totals as any).prompt_tokens + (cli_totals as any).output_tokens) / (cli_totals as any).request_count).toLocaleString()
+                  : 0} tokens/request)
+              </div>
+            )}
+            <div style={{ fontSize: 11, color: "var(--text-muted)", marginTop: 8 }}>
+              * Số liệu CLI là tổng toàn org, không lọc theo group
+            </div>
+          </div>
         </div>
       </Section>
 

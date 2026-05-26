@@ -3,6 +3,7 @@ import type React from "react";
 import { useSync, useCsvInfo } from "../hooks/useData";
 import { useTheme } from "../contexts/ThemeContext";
 import { useI18n } from "../contexts/I18nContext";
+import { useCurrentUser } from "../contexts/AuthContext";
 
 interface Props {
   consoleOpen: boolean;
@@ -20,6 +21,8 @@ export function StatusBar({ consoleOpen, onToggleConsole, syncing = false, curre
   const { sync } = useSync();
   const { theme, toggleTheme } = useTheme();
   const { lang, toggleLang, t } = useI18n();
+  const { currentUser } = useCurrentUser();
+  const isSuperAdmin = currentUser?.role === "super_admin";
   const fileInputRef = useRef<HTMLInputElement>(null);
   const { info: csvInfo, uploadCsv } = useCsvInfo();
   const [csvUploading, setCsvUploading] = useState(false);
@@ -141,14 +144,16 @@ export function StatusBar({ consoleOpen, onToggleConsole, syncing = false, curre
         </button>
         <div className="csv-upload-group">
           <input ref={fileInputRef} type="file" accept=".csv" onChange={handleCsvUpload} style={{ display: "none" }} />
-          <button
-            className="btn btn-small"
-            onClick={() => fileInputRef.current?.click()}
-            disabled={csvUploading}
-            title={t("dashboard.uploadCsvHint")}
-          >
-            {csvUploading ? t("dashboard.csvUploading") : t("dashboard.uploadCsv")}
-          </button>
+          {isSuperAdmin && (
+            <button
+              className="btn btn-small"
+              onClick={() => fileInputRef.current?.click()}
+              disabled={csvUploading}
+              title={t("dashboard.uploadCsvHint")}
+            >
+              {csvUploading ? t("dashboard.csvUploading") : t("dashboard.uploadCsv")}
+            </button>
+          )}
           {csvInfo?.premium_csv?.has_data && (
             <span className="csv-date-hint" title={`${t("csvDash.csvType.premium_request")}: ${csvInfo.premium_csv.earliest_date} ~ ${csvInfo.premium_csv.latest_date}`}>
               P:{csvInfo.premium_csv.latest_date}
@@ -161,9 +166,11 @@ export function StatusBar({ consoleOpen, onToggleConsole, syncing = false, curre
           )}
           {csvMessage && <span className="csv-upload-msg">{csvMessage}</span>}
         </div>
-        <button className="btn btn-small" onClick={handleSync} disabled={syncing} title={t("status.syncDataHint")}>
-          {syncing ? t("status.syncing") : t("status.syncData")}
-        </button>
+        {isSuperAdmin && (
+          <button className="btn btn-small" onClick={handleSync} disabled={syncing} title={t("status.syncDataHint")}>
+            {syncing ? t("status.syncing") : t("status.syncData")}
+          </button>
+        )}
         <button
           className="btn btn-small btn-ghost"
           onClick={async () => {

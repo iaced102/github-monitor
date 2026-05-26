@@ -31,11 +31,12 @@ interface SidebarPanelProps {
   onToggle: () => void;
   extra?: ReactNode;
   children: ReactNode;
+  autoHeight?: boolean;
 }
 
-function SidebarPanel({ title, collapsed, onToggle, extra, children }: SidebarPanelProps) {
+function SidebarPanel({ title, collapsed, onToggle, extra, children, autoHeight }: SidebarPanelProps) {
   return (
-    <div className={`sidebar-panel ${collapsed ? "sidebar-panel-collapsed" : "sidebar-panel-expanded"}`}>
+    <div className={`sidebar-panel ${collapsed ? "sidebar-panel-collapsed" : "sidebar-panel-expanded"}${autoHeight ? " sidebar-panel-auto" : ""}`}>
       <div className="sidebar-panel-header" onClick={onToggle}>
         <span className="sidebar-panel-chevron">{collapsed ? "\u25B6" : "\u25BC"}</span>
         <span className="sidebar-panel-title">{title}</span>
@@ -275,6 +276,7 @@ function AppLayout({ onLogout }: { onLogout: () => void }) {
             title={t("sidebar.overview")}
             collapsed={collapsed.overview}
             onToggle={() => togglePanel("overview")}
+            autoHeight
           >
             <OverviewPanel key={refreshKey} />
           </SidebarPanel>

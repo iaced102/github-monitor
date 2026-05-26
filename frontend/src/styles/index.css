@@ -234,6 +234,52 @@ body {
   text-align: center;
 }
 
+.stat-breakdown {
+  margin-top: 6px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  border-top: 1px solid var(--border);
+  padding-top: 5px;
+}
+
+.stat-breakdown-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 4px;
+  font-size: 10px;
+  color: var(--text-secondary);
+}
+
+.stat-breakdown-row.pending-row {
+  color: var(--warning);
+  justify-content: center;
+}
+
+.plan-badge {
+  font-size: 9px;
+  font-weight: 600;
+  padding: 1px 5px;
+  border-radius: 4px;
+  text-transform: capitalize;
+}
+
+.plan-badge.plan-enterprise {
+  background: rgba(56, 139, 253, 0.15);
+  color: #58a6ff;
+}
+
+.plan-badge.plan-business {
+  background: rgba(63, 185, 80, 0.15);
+  color: #3fb950;
+}
+
+.active-count {
+  color: #3fb950;
+  font-weight: 600;
+}
+
 .stat-card.warning { border-color: var(--warning); }
 .stat-card.danger { border-color: var(--danger); }
 .stat-card.cost { border-color: var(--accent); }
@@ -1007,6 +1053,16 @@ body {
   flex: 1 1 0;
   min-height: 0;
   overflow: hidden;
+}
+
+.sidebar-panel-auto.sidebar-panel-expanded {
+  flex: 0 0 auto;
+  overflow: visible;
+}
+
+.sidebar-panel-auto .sidebar-panel-body {
+  overflow: visible;
+  flex: 0 0 auto;
 }
 
 .sidebar-panel-header {

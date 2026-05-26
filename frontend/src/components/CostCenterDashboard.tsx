@@ -393,6 +393,7 @@ export function CostCenterDashboard({ refreshKey: _ }: Props) {
       {/* KPI cards */}
       <div className="dashboard-kpi">
         <div className="stat-card">
+          <InfoIcon id="cc_kpi_total_seats" />
           <div className="stat-value">
             {hasCostCenters ? data.total_cost_centers : (seatFallback?.total_seats ?? 0)}
           </div>
@@ -401,6 +402,7 @@ export function CostCenterDashboard({ refreshKey: _ }: Props) {
           </div>
         </div>
         <div className="stat-card">
+          <InfoIcon id="cc_kpi_active_users" />
           <div className="stat-value">
             {hasCostCenters ? data.total_unique_members : (seatFallback?.users.filter(u => u.interactions + u.code_gen > 0).length ?? 0)}
           </div>

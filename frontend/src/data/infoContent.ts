@@ -538,6 +538,89 @@ export const INFO: Record<string, InfoContent> = {
     tip: "Các tab khác nhau dùng nguồn dữ liệu khác nhau. Số trong Usage Metrics KPI là con số chính xác nhất từ GitHub Billing.",
   },
 
+  // ─── Overview Panel (Sidebar) ────────────────────────────────────────────
+  kpi_overview_total_seats: {
+    title: "Tổng ghế — Số người dùng được gán license",
+    description: "Số người dùng duy nhất (unique users) đang được gán license GitHub Copilot. Mỗi người chỉ được đếm 1 lần dù có thể có nhiều bản ghi seat (ví dụ khi đang chuyển plan Business → Enterprise).",
+    metrics: [
+      { name: "Unique Users", desc: "Sau khi loại bỏ trùng lặp theo username", example: "41 users (từ 51 bản ghi seat)" },
+      { name: "Business", desc: "Users đang dùng plan Copilot Business ($19/user/tháng)", example: "28 users Business" },
+      { name: "Enterprise", desc: "Users đang dùng plan Copilot Enterprise ($39/user/tháng)", example: "13 users Enterprise" },
+      { name: "Chờ hủy seat", desc: "Users có ít nhất 1 seat đang trong trạng thái pending cancellation (thường khi nâng cấp hoặc thu hồi license)", example: "31 users có seat chờ hủy" },
+    ],
+    tip: "Khi user được nâng cấp Business → Enterprise, GitHub API tạm thời trả về 2 bản ghi seat cho cùng 1 user. Con số này đã được loại bỏ trùng lặp để phản ánh đúng số người dùng thực tế.",
+  },
+  kpi_overview_active_seats: {
+    title: "Hoạt động — Số user được gán license có phát sinh sử dụng",
+    description: "Số người dùng được gán license GitHub Copilot có phát sinh sử dụng trong 30 ngày gần nhất, theo dữ liệu last_activity_at từ GitHub Seats API.",
+    metrics: [
+      { name: "Điều kiện active", desc: "last_activity_at < 30 ngày tính từ thời điểm hiện tại", example: "Dùng Copilot lần cuối 2026-05-20 → active ✅" },
+      { name: "Nguồn dữ liệu", desc: "Trường last_activity_at trong GitHub Seats API (ghi nhận khi user dùng Copilot bất kỳ tính năng nào)", example: "36 / 41 users active trong 30 ngày" },
+      { name: "Khác với Cost Centers", desc: "Cost Centers dùng usage report (interactions + code_gen > 0 trong 28 ngày) → có thể cho con số khác", example: "Sidebar: 36 active · Cost Centers: 32 active" },
+    ],
+    tip: "User được tính là active khi GitHub ghi nhận last_activity_at trong 30 ngày, bao gồm cả code completion, chat, và các tính năng Copilot khác.",
+  },
+  kpi_overview_inactive_seats: {
+    title: "Không hoạt động — Users có license nhưng không dùng",
+    description: "Số người dùng đang được gán license GitHub Copilot nhưng không có phát sinh sử dụng trong 30 ngày gần nhất.",
+    metrics: [
+      { name: "Công thức", desc: "Tổng ghế (unique users) − Hoạt động", example: "41 − 36 = 5 inactive" },
+      { name: "Điều kiện inactive", desc: "last_activity_at > 30 ngày hoặc chưa bao giờ dùng", example: "Chưa từng dùng Copilot → inactive ❌" },
+    ],
+    tip: "Thu hồi license của users inactive > 30 ngày để tiết kiệm chi phí. Dùng tab Lifecycle để xem danh sách chi tiết.",
+  },
+  kpi_overview_utilization: {
+    title: "Tỷ lệ sử dụng (Utilization Rate)",
+    description: "Phần trăm số người dùng có license đang thực sự sử dụng Copilot trong 30 ngày gần nhất.",
+    metrics: [
+      { name: "Công thức", desc: "(Hoạt động / Tổng ghế) × 100%", example: "36 / 41 = 87.8%" },
+      { name: "≥ 80%", desc: "Tốt — utilization hiệu quả", example: "87% ✅" },
+      { name: "50–79%", desc: "Trung bình — có thể tối ưu thêm", example: "65% ⚠️" },
+      { name: "< 50%", desc: "Kém — nên thu hồi seats không dùng", example: "35% ❌" },
+    ],
+    tip: "Nếu utilization < 70%, xem danh sách inactive users ở tab Lifecycle để thu hồi license và tiết kiệm chi phí.",
+  },
+  kpi_overview_monthly_cost: {
+    title: "Chi phí tháng (Monthly Cost)",
+    description: "Tổng chi phí license GitHub Copilot ước tính hàng tháng, tính trên số seats được gán theo đơn giá từng plan.",
+    metrics: [
+      { name: "Copilot Business", desc: "$19/user/tháng", example: "28 users × $19 = $532/tháng" },
+      { name: "Copilot Enterprise", desc: "$39/user/tháng", example: "13 users × $39 = $507/tháng" },
+      { name: "Lưu ý", desc: "Chi phí thực tế có thể khác nếu có discount hoặc enterprise billing riêng", example: "Tổng ≈ $1,039/tháng" },
+    ],
+    tip: "Giảm inactive seats để giảm chi phí ngay lập tức. Mỗi inactive user Business = $19/tháng lãng phí.",
+  },
+  kpi_overview_monthly_waste: {
+    title: "Lãng phí tháng (Monthly Waste)",
+    description: "Chi phí bị lãng phí cho các users có license nhưng không sử dụng Copilot trong 30 ngày gần nhất.",
+    metrics: [
+      { name: "Công thức", desc: "Inactive Users × Đơn giá/user", example: "5 inactive × $19 = $95/tháng lãng phí" },
+      { name: "Tiết kiệm tiềm năng", desc: "Thu hồi tất cả inactive seats sẽ tiết kiệm được số này mỗi tháng", example: "$95/tháng × 12 = $1,140/năm" },
+    ],
+    tip: "Thu hồi license của users không dùng > 30 ngày. Dùng tính năng Lifecycle hoặc AI Chat để tạo recommendation tự động.",
+  },
+
+  // ─── Cost Centers Tab KPI Cards ──────────────────────────────────────────
+  cc_kpi_total_seats: {
+    title: "Tổng Ghế (Cost Centers)",
+    description: "Số người dùng duy nhất (unique users) có seat Copilot, tổng hợp từ dữ liệu seat và usage report.",
+    metrics: [
+      { name: "Cách tính", desc: "Đếm unique login từ danh sách seats (dedup)", example: "51 bản ghi → 41 unique users" },
+      { name: "Pending Cancellation", desc: "User có cả seat enterprise mới và seat business cũ chờ hủy chỉ được đếm 1 lần", example: "10 users trùng → chỉ tính 1 lần" },
+    ],
+    tip: "Con số này phản ánh chính xác số người dùng thực tế có license trong tổ chức.",
+  },
+  cc_kpi_active_users: {
+    title: "Người dùng Hoạt động (Cost Centers)",
+    description: "Số user có ít nhất 1 interaction hoặc code generation trong kỳ báo cáo (28 ngày), theo dữ liệu usage report.",
+    metrics: [
+      { name: "Điều kiện active", desc: "interactions + code_gen > 0 trong usage report", example: "32 users có activity trong 28 ngày" },
+      { name: "Nguồn dữ liệu", desc: "GitHub Usage Metrics API (user-level report)", example: "29 ngày dữ liệu → 32 unique active users" },
+      { name: "Khác với sidebar", desc: "Sidebar dùng last_activity_at < 30 ngày (Seats API), Cost Centers dùng usage report", example: "Sidebar: 36 active · Cost Centers: 32 active" },
+    ],
+    tip: "32 = số user thực sự dùng Copilot có ghi nhận trong usage report. Sidebar (36) bao gồm cả những user chỉ mở IDE có Copilot nhưng không thực sự tương tác.",
+  },
+
   // ─── Monitor Tab KPI Cards ───────────────────────────────────────────────
   mon_uniqueModels: {
     title: "Số Model AI khác nhau",

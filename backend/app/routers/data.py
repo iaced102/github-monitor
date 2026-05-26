@@ -155,6 +155,10 @@ async def get_overview(request: Request, group_id: int = Query(default=0)):
     total_waste = 0.0
     orgs_with_copilot = 0
 
+    plan_seats: dict[str, int] = {}   # plan_type → seat count
+    plan_active: dict[str, int] = {}  # plan_type → active count
+    total_pending_cancellation = 0
+
     for org_name in all_scope_names:
         billing = data_collector.load_latest("billing", org_name)
         seats_data = data_collector.load_latest("seats", org_name)
@@ -180,22 +184,50 @@ async def get_overview(request: Request, group_id: int = Query(default=0)):
             billing_seats = seats_data.get("total_seats", 0) or len(seats_list)
             if scope_users is not None:
                 billing_seats = len(seats_list)
-            seats = len(seats_list)  # display/count total
+
+            # Deduplicate by login: group seat records per unique user
+            # (some users have 2 records while upgrading Business → Enterprise)
             now = datetime.now(timezone.utc)
+            from collections import defaultdict
+            by_login: dict = defaultdict(list)
+            for s in seats_list:
+                login = (s.get("assignee") or {}).get("login", "").lower()
+                by_login[login].append(s)
+
+            seats = 0  # unique user count
             active = 0
             inactive = 0
-            for s in seats_list:
-                last = s.get("last_activity_at")
+            for login, user_seats in by_login.items():
+                if not login:
+                    continue
+                seats += 1
+                # Primary plan: prefer non-pending seat, prefer enterprise over business
+                non_pending = [s for s in user_seats if not s.get("pending_cancellation_date")]
+                primary = non_pending[0] if non_pending else user_seats[0]
+                plan = (primary.get("plan_type") or "unknown").lower()
+
+                # Active if ANY seat record has recent activity
                 is_active = False
-                if last:
-                    try:
-                        is_active = (now - datetime.fromisoformat(last.replace("Z", "+00:00"))).days < 30
-                    except (ValueError, TypeError):
-                        pass
+                for s in user_seats:
+                    last = s.get("last_activity_at")
+                    if last:
+                        try:
+                            if (now - datetime.fromisoformat(last.replace("Z", "+00:00"))).days < 30:
+                                is_active = True
+                                break
+                        except (ValueError, TypeError):
+                            pass
+
+                plan_seats[plan] = plan_seats.get(plan, 0) + 1
                 if is_active:
                     active += 1
+                    plan_active[plan] = plan_active.get(plan, 0) + 1
                 else:
                     inactive += 1
+
+                # Count users who have at least one pending-cancellation seat
+                if any(s.get("pending_cancellation_date") for s in user_seats):
+                    total_pending_cancellation += 1
         elif billing:
             sb = billing.get("seat_breakdown", {})
             billing_seats = sb.get("total", 0)
@@ -210,6 +242,15 @@ async def get_overview(request: Request, group_id: int = Query(default=0)):
         total_cost += billing_seats * price
         total_waste += inactive * price
 
+    plan_breakdown = [
+        {
+            "plan": plan,
+            "seats": plan_seats[plan],
+            "active": plan_active.get(plan, 0),
+        }
+        for plan in sorted(plan_seats)
+    ]
+
     return {
         "total_organizations": len(all_scope_names),
         "orgs_with_copilot": orgs_with_copilot,
@@ -220,6 +261,9 @@ async def get_overview(request: Request, group_id: int = Query(default=0)):
         "monthly_cost": total_cost,
         "monthly_waste": total_waste,
         "annual_waste": total_waste * 12,
+        "plan_breakdown": plan_breakdown,
+        "pending_cancellation": total_pending_cancellation,
+        "active_window_days": 30,
     }
 
 

@@ -98,7 +98,7 @@ export function OrgSelector() {
                   <div className="org-name">{org.login}</div>
                   {org.has_copilot ? (
                     <div className="org-meta">
-                      {org.plan_type} &middot; {org.total_seats} seats &middot; {org.active_seats} active
+                      {org.plan_type} &middot; {org.total_seats} {t("sort.seatsUnit")} &middot; {org.active_seats} {t("sort.activeUnit")}
                     </div>
                   ) : (
                     <div className="org-meta muted">{t("sidebar.noCopilot")}</div>

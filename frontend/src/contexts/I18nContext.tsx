@@ -39,8 +39,8 @@ const translations = {
 
     // Sidebar
     "sidebar.overview": "Overview",
-    "sidebar.totalSeats": "Total Seats",
-    "sidebar.active": "Active",
+    "sidebar.totalSeats": "Licensed Users",
+    "sidebar.active": "Active (30d)",
     "sidebar.inactive": "Inactive",
     "sidebar.utilization": "Utilization",
     "sidebar.monthlyCost": "Monthly Cost",
@@ -51,10 +51,12 @@ const translations = {
 
     // Sort
     "sort.name": "Name",
-    "sort.seats": "Total Seats",
-    "sort.active": "Active Seats",
+    "sort.seats": "Licensed Users",
+    "sort.active": "Active (30d)",
     "sort.inactive": "Inactive",
     "sort.waste": "Waste",
+    "sort.seatsUnit": "users",
+    "sort.activeUnit": "active",
 
     // Actions
     "actions.title": "Pending Actions",
@@ -452,23 +454,25 @@ const translations = {
     "qp.roiPrompt": "\u8ba1\u7b97\u6211\u4eec Copilot \u6295\u8d44\u7684 ROI\u3002\u6211\u4eec\u83b7\u5f97\u4e86\u4ef7\u503c\u5417\uff1f",
 
     // Sidebar
-    "sidebar.overview": "\u6982\u89c8",
-    "sidebar.totalSeats": "\u603b\u5e2d\u4f4d",
-    "sidebar.active": "\u6d3b\u8dc3",
-    "sidebar.inactive": "\u4e0d\u6d3b\u8dc3",
-    "sidebar.utilization": "\u4f7f\u7528\u7387",
-    "sidebar.monthlyCost": "\u6708\u5ea6\u6210\u672c",
-    "sidebar.monthlyWaste": "\u6708\u5ea6\u6d6a\u8d39",
+    "sidebar.overview": "概览",
+    "sidebar.totalSeats": "已授权用户",
+    "sidebar.active": "活跃 (30天)",
+    "sidebar.inactive": "不活跃",
+    "sidebar.utilization": "使用率",
+    "sidebar.monthlyCost": "月度成本",
+    "sidebar.monthlyWaste": "月度浪费",
     "sidebar.organizations": "\u7ec4\u7ec7",
     "sidebar.noOrgs": "\u672a\u53d1\u73b0\u7ec4\u7ec7",
     "sidebar.noCopilot": "\u65e0 Copilot",
 
     // Sort
-    "sort.name": "\u540d\u79f0",
-    "sort.seats": "\u603b\u5e2d\u4f4d",
-    "sort.active": "\u6d3b\u8dc3\u5e2d\u4f4d",
-    "sort.inactive": "\u4e0d\u6d3b\u8dc3",
-    "sort.waste": "\u6d6a\u8d39",
+    "sort.name": "名称",
+    "sort.seats": "已授权用户",
+    "sort.active": "活跃 (30天)",
+    "sort.inactive": "不活跃",
+    "sort.waste": "浪费",
+    "sort.seatsUnit": "用户",
+    "sort.activeUnit": "活跃",
 
     // Actions
     "actions.title": "\u5f85\u5904\u7406\u64cd\u4f5c",
@@ -863,8 +867,8 @@ const translations = {
 
     // Sidebar
     "sidebar.overview": "Tổng quan",
-    "sidebar.totalSeats": "Tổng ghế",
-    "sidebar.active": "Hoạt động",
+    "sidebar.totalSeats": "Users có license",
+    "sidebar.active": "Hoạt động (30 ngày)",
     "sidebar.inactive": "Không hoạt động",
     "sidebar.utilization": "Tỷ lệ sử dụng",
     "sidebar.monthlyCost": "Chi phí tháng",
@@ -875,10 +879,12 @@ const translations = {
 
     // Sort
     "sort.name": "Tên",
-    "sort.seats": "Tổng ghế",
-    "sort.active": "Ghế hoạt động",
+    "sort.seats": "Users có license",
+    "sort.active": "Hoạt động (30 ngày)",
     "sort.inactive": "Không hoạt động",
     "sort.waste": "Lãng phí",
+    "sort.seatsUnit": "users",
+    "sort.activeUnit": "active",
 
     // Actions
     "actions.title": "Hành động chờ xử lý",
