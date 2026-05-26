@@ -243,7 +243,7 @@ export function Dashboard({ refreshKey }: Props) {
               <>
                 <div className="stat-card stat-card-trend">
                   <div className="stat-value">{trend.current.acceptance_rate?.toFixed(1)}%</div>
-                  <div className="stat-label">Acceptance Rate {delta("acceptance_rate_pt")}</div>
+                  <div className="stat-label">Acceptance Rate (7d) {delta("acceptance_rate_pt")}</div>
                 </div>
                 <div className="stat-card stat-card-trend">
                   <div className="stat-value">{trend.current.avg_dau?.toFixed(1)}</div>
