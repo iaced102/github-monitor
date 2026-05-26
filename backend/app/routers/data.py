@@ -38,10 +38,20 @@ def _get_scope_usernames(request: Request, group_id: int | None = None) -> set[s
     if db is None:
         return None
 
+    def _clean_username(u: str) -> str:
+        """Normalise a stored GitHub username: strip @ prefix, trim whitespace and
+        any trailing non-alphanumeric/underscore/hyphen characters (e.g. typos like
+        'longa]' or 'user.'). Returns lower-case result."""
+        import re
+        u = u.strip().lstrip("@")
+        u = re.sub(r"[^a-zA-Z0-9_\-]+$", "", u)  # strip trailing garbage chars
+        return u.lower()
+
     if user["role"] == "super_admin":
         if group_id:
             members = db.get_group_members(group_id)
-            return set(u.lower().lstrip("@") for u in members) if members else None
+            cleaned = {_clean_username(u) for u in members if _clean_username(u)}
+            return cleaned if cleaned else set()  # empty group → see nothing
         return None  # super_admin, no group filter
 
     # manager: always restricted to their assigned groups
@@ -49,7 +59,7 @@ def _get_scope_usernames(request: Request, group_id: int | None = None) -> set[s
     if not gids:
         return set()  # manager with no groups sees nothing
     usernames = db.get_all_group_usernames(gids)
-    return set(u.lower().lstrip("@") for u in usernames)
+    return {_clean_username(u) for u in usernames if _clean_username(u)}
 
 
 @router.get("/data/orgs")
@@ -135,9 +145,9 @@ async def get_orgs():
 
 
 @router.get("/data/overview")
-async def get_overview(request: Request):
+async def get_overview(request: Request, group_id: int = Query(default=0)):
     """Get a quick overview across all organizations, scoped to the current user's group if a manager."""
-    scope_users = _get_scope_usernames(request)
+    scope_users = _get_scope_usernames(request, group_id or None)
     all_scope_names = _get_all_scope_names()
     total_seats = 0
     total_active = 0
@@ -1976,6 +1986,34 @@ async def get_usage_monitor(
     daily_model: dict[str, dict[str, dict]] = defaultdict(
         lambda: defaultdict(lambda: {"interactions": 0, "code_gen": 0, "code_accept": 0})
     )
+    # New aggregations (collected from per-user data in second loop)
+    feature_totals: dict[str, dict] = defaultdict(lambda: {
+        "interactions": 0, "code_gen": 0, "code_accept": 0,
+        "loc_suggested": 0, "loc_added": 0,
+    })
+    ide_totals: dict[str, dict] = defaultdict(lambda: {
+        "interactions": 0, "code_gen": 0, "code_accept": 0,
+        "loc_suggested": 0, "loc_added": 0,
+    })
+    lang_totals: dict[str, dict] = defaultdict(lambda: {
+        "code_gen": 0, "code_accept": 0, "loc_suggested": 0,
+    })
+    user_flags: dict[str, dict] = {}
+    user_ides: dict[str, set] = defaultdict(set)
+    # Collect report period from record headers (report_start_day / report_end_day)
+    report_period_starts: list[str] = []
+    report_period_ends: list[str] = []
+    pr_totals: dict = {k: 0 for k in [
+        "total_reviewed", "total_created", "total_created_by_copilot",
+        "total_reviewed_by_copilot", "total_merged", "total_suggestions",
+        "total_applied_suggestions", "total_merged_created_by_copilot",
+        "total_copilot_suggestions", "total_copilot_applied_suggestions",
+        "total_merged_reviewed_by_copilot",
+    ]}
+    cli_totals: dict = {
+        "session_count": 0, "request_count": 0,
+        "output_tokens": 0, "prompt_tokens": 0, "prompt_count": 0,
+    }
 
     if scope_users is not None:
         # When group scope is active, build model aggregates from per-user data
@@ -1989,6 +2027,11 @@ async def get_usage_monitor(
                 if login.lower() not in scope_users:
                     continue
                 day = rec.get("day", "")
+                # Collect report period from record headers
+                rs = rec.get("report_start_day", "")
+                re_ = rec.get("report_end_day", "")
+                if rs: report_period_starts.append(rs)
+                if re_: report_period_ends.append(re_)
                 for mf in rec.get("totals_by_model_feature", []):
                     m = _normalize_model(mf.get("model", "unknown"))
                     model_totals[m]["interactions"] += mf.get("user_initiated_interaction_count", 0)
@@ -2017,6 +2060,10 @@ async def get_usage_monitor(
                 continue
             records = usage if isinstance(usage, list) else usage.get("records", [usage])
             for rec in records:
+                rs = rec.get("report_start_day", "")
+                re_ = rec.get("report_end_day", "")
+                if rs: report_period_starts.append(rs)
+                if re_: report_period_ends.append(re_)
                 for day_rec in rec.get("day_totals", []):
                     day = day_rec.get("day", "")
                     for mf in day_rec.get("totals_by_model_feature", []):
@@ -2058,6 +2105,11 @@ async def get_usage_monitor(
             login = rec.get("user_login", "unknown")
             if scope_users is not None and login.lower() not in scope_users:
                 continue
+            # Collect report period dates from each record
+            rs = rec.get("report_start_day", "")
+            re_ = rec.get("report_end_day", "")
+            if rs: report_period_starts.append(rs)
+            if re_: report_period_ends.append(re_)
             for mf in rec.get("totals_by_model_feature", []):
                 m = _normalize_model(mf.get("model", "unknown"))
                 interactions = mf.get("user_initiated_interaction_count", 0)
@@ -2070,6 +2122,58 @@ async def get_usage_monitor(
                 user_feature[login][feat]["interactions"] += interactions
                 user_feature[login][feat]["code_gen"] += code_gen
                 user_totals[login] += interactions + code_gen
+            # ── new: feature / IDE / language totals from per-user records ──
+            for f in rec.get("totals_by_feature", []):
+                feat = f.get("feature", "unknown")
+                feature_totals[feat]["interactions"] += int(f.get("user_initiated_interaction_count", 0) or 0)
+                feature_totals[feat]["code_gen"] += int(f.get("code_generation_activity_count", 0) or 0)
+                feature_totals[feat]["code_accept"] += int(f.get("code_acceptance_activity_count", 0) or 0)
+                feature_totals[feat]["loc_suggested"] += int(f.get("loc_suggested_to_add_sum", 0) or 0)
+                feature_totals[feat]["loc_added"] += int(f.get("loc_added_sum", 0) or 0)
+            for ide_rec in rec.get("totals_by_ide", []):
+                ide = ide_rec.get("ide", "unknown")
+                ide_totals[ide]["interactions"] += int(ide_rec.get("user_initiated_interaction_count", 0) or 0)
+                ide_totals[ide]["code_gen"] += int(ide_rec.get("code_generation_activity_count", 0) or 0)
+                ide_totals[ide]["code_accept"] += int(ide_rec.get("code_acceptance_activity_count", 0) or 0)
+                ide_totals[ide]["loc_suggested"] += int(ide_rec.get("loc_suggested_to_add_sum", 0) or 0)
+                ide_totals[ide]["loc_added"] += int(ide_rec.get("loc_added_sum", 0) or 0)
+                if int(ide_rec.get("user_initiated_interaction_count", 0) or 0) + int(ide_rec.get("code_generation_activity_count", 0) or 0) > 0:
+                    user_ides[login].add(ide)
+            for lf in rec.get("totals_by_language_feature", []):
+                lang = lf.get("language", "unknown")
+                lang_totals[lang]["code_gen"] += int(lf.get("code_generation_activity_count", 0) or 0)
+                lang_totals[lang]["code_accept"] += int(lf.get("code_acceptance_activity_count", 0) or 0)
+                lang_totals[lang]["loc_suggested"] += int(lf.get("loc_suggested_to_add_sum", 0) or 0)
+            # ── user flags (OR across multiple days per user) ──
+            if login not in user_flags:
+                user_flags[login] = {
+                    "used_agent": False, "used_chat": False,
+                    "used_cli": False, "used_coding_agent": False, "used_cloud_agent": False,
+                }
+            user_flags[login]["used_agent"] = user_flags[login]["used_agent"] or bool(rec.get("used_agent"))
+            user_flags[login]["used_chat"] = user_flags[login]["used_chat"] or bool(rec.get("used_chat"))
+            user_flags[login]["used_cli"] = user_flags[login]["used_cli"] or bool(rec.get("used_cli"))
+            user_flags[login]["used_coding_agent"] = user_flags[login]["used_coding_agent"] or bool(rec.get("used_copilot_coding_agent"))
+            user_flags[login]["used_cloud_agent"] = user_flags[login]["used_cloud_agent"] or bool(rec.get("used_copilot_cloud_agent"))
+
+    # ── collect PR + CLI from org-level data (always org-wide) ───────────────
+    for scope in scopes:
+        org_usage = data_collector.load_latest("usage", scope)
+        if not org_usage:
+            continue
+        org_records = org_usage if isinstance(org_usage, list) else org_usage.get("records", [org_usage])
+        for org_rec in org_records:
+            for day_rec in org_rec.get("day_totals", []):
+                pr = day_rec.get("pull_requests", {}) or {}
+                for k in pr_totals:
+                    pr_totals[k] += int(pr.get(k, 0) or 0)
+                cli = day_rec.get("totals_by_cli", {}) or {}
+                cli_totals["session_count"] += int(cli.get("session_count", 0) or 0)
+                cli_totals["request_count"] += int(cli.get("request_count", 0) or 0)
+                cli_totals["prompt_count"] += int(cli.get("prompt_count", 0) or 0)
+                tok = cli.get("token_usage", {}) or {}
+                cli_totals["output_tokens"] += int(tok.get("output_tokens_sum", 0) or 0)
+                cli_totals["prompt_tokens"] += int(tok.get("prompt_tokens_sum", 0) or 0)
 
     # ── serialise ─────────────────────────────────────────────────────────────
     model_totals_list = sorted(
@@ -2087,6 +2191,26 @@ async def get_usage_monitor(
         key=lambda x: -x["code_gen"],
     )
 
+    feature_totals_list = sorted(
+        [{"feature": f, **v} for f, v in feature_totals.items() if v["interactions"] + v["code_gen"] > 0],
+        key=lambda x: -(x["interactions"] + x["code_gen"]),
+    )
+
+    ide_totals_list = sorted(
+        [{"ide": ide, **v} for ide, v in ide_totals.items() if v["interactions"] + v["code_gen"] > 0],
+        key=lambda x: -(x["interactions"] + x["code_gen"]),
+    )
+
+    lang_totals_list = sorted(
+        [{"language": l, **v} for l, v in lang_totals.items() if v["code_gen"] > 0],
+        key=lambda x: -x["code_gen"],
+    )[:20]
+
+    user_flags_list = [
+        {"user": login, **flags, "ides": sorted(user_ides.get(login, set()))}
+        for login, flags in sorted(user_flags.items())
+    ]
+
     # daily trend: [{day, models: [{model, interactions, code_gen}]}]
     daily_trend = []
     for day in sorted(daily_model.keys()):
@@ -2101,10 +2225,15 @@ async def get_usage_monitor(
     # get all unique model names (used as chart series keys) — only models with actual activity
     all_models = sorted(m for m, v in model_totals.items() if v["interactions"] + v["code_gen"] > 0)
 
-    # date range for period label
-    report_days = sorted(daily_model.keys())
-    report_start = report_days[0] if report_days else None
-    report_end = report_days[-1] if report_days else None
+    # date range for period label — prefer report_start_day/report_end_day from records
+    # (these reflect the full 28-day window) over daily_model keys (activity days only)
+    if report_period_starts and report_period_ends:
+        report_start = min(report_period_starts)
+        report_end = max(report_period_ends)
+    else:
+        report_days = sorted(daily_model.keys())
+        report_start = report_days[0] if report_days else None
+        report_end = report_days[-1] if report_days else None
 
     # per-user model breakdown
     user_model_list = []
@@ -2133,6 +2262,11 @@ async def get_usage_monitor(
     top_model = model_totals_list[0]["model"] if model_totals_list else "—"
     unique_models = len(model_totals_list)
     active_users = len(user_model)
+    total_loc_suggested = sum(v["loc_suggested"] for v in feature_totals.values())
+    total_loc_added = sum(v["loc_added"] for v in feature_totals.values())
+    loc_acceptance_rate = round(total_loc_added / total_loc_suggested * 100, 1) if total_loc_suggested > 0 else 0.0
+    top_feature = feature_totals_list[0]["feature"] if feature_totals_list else "—"
+    top_ide = ide_totals_list[0]["ide"] if ide_totals_list else "—"
 
     return {
         "kpi": {
@@ -2143,6 +2277,14 @@ async def get_usage_monitor(
             "active_users": active_users,
             "report_start": report_start,
             "report_end": report_end,
+            "loc_suggested": total_loc_suggested,
+            "loc_added": total_loc_added,
+            "loc_acceptance_rate": loc_acceptance_rate,
+            "top_feature": top_feature,
+            "top_ide": top_ide,
+            "users_with_agent": sum(1 for f in user_flags.values() if f["used_agent"]),
+            "users_with_cli": sum(1 for f in user_flags.values() if f["used_cli"]),
+            "users_with_coding_agent": sum(1 for f in user_flags.values() if f["used_coding_agent"]),
         },
         "model_totals": model_totals_list,
         "model_feature": model_feature_list,
@@ -2151,6 +2293,12 @@ async def get_usage_monitor(
         "all_models": all_models,
         "user_model": user_model_list,
         "user_feature": user_feature_list,
+        "feature_totals": feature_totals_list,
+        "ide_totals": ide_totals_list,
+        "lang_totals": lang_totals_list,
+        "pr_totals": pr_totals,
+        "cli_totals": cli_totals,
+        "user_flags": user_flags_list,
     }
 
 

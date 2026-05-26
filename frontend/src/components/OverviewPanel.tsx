@@ -1,9 +1,11 @@
 import { useOverview } from "../hooks/useData";
 import { useI18n } from "../contexts/I18nContext";
+import { useUIState } from "../contexts/UIStateContext";
 import { InfoIcon } from "./InfoIcon";
 
 export function OverviewPanel() {
-  const { overview, loading } = useOverview();
+  const ui = useUIState();
+  const { overview, loading } = useOverview(ui.selectedGroupId);
   const { t } = useI18n();
 
   if (loading) {

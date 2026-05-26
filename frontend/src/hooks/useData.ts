@@ -24,13 +24,14 @@ export function useOrgs() {
   return { orgs, loading, refetch: fetchOrgs };
 }
 
-export function useOverview() {
+export function useOverview(groupId?: number | null) {
   const [overview, setOverview] = useState<Overview | null>(null);
   const [loading, setLoading] = useState(true);
 
   const fetchOverview = useCallback(async () => {
     try {
-      const res = await fetch("/api/data/overview");
+      const url = groupId ? `/api/data/overview?group_id=${groupId}` : "/api/data/overview";
+      const res = await fetch(url);
       const data = await res.json();
       setOverview(data);
     } catch {
@@ -38,7 +39,7 @@ export function useOverview() {
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [groupId]);
 
   useEffect(() => {
     fetchOverview();
