@@ -19,6 +19,7 @@ from ..services.data_collector import data_collector
 from ..services.report_generator import generate_report_zip
 from ..services.periodic_report_generator import generate_periodic_report_zip, generate_periodic_report
 from ..services import database as db_module
+from ..config import COPILOT_PRICING
 
 router = APIRouter(tags=["data"])
 
@@ -166,7 +167,6 @@ async def get_overview(request: Request, group_id: int = Query(default=0)):
             continue
 
         orgs_with_copilot += 1
-        price = float((billing or {}).get("_detected_price_per_seat", 39.0) or 39.0)
 
         # Derive active/inactive counts from the full seat list so the numbers
         # are consistent with the Lifecycle scan (last_activity_at rolling window).
@@ -180,15 +180,10 @@ async def get_overview(request: Request, group_id: int = Query(default=0)):
                     s for s in seats_list
                     if (s.get("assignee") or {}).get("login", "").lower() in scope_users
                 ]
-            # Use API total_seats for billing cost, fall back to list length
-            billing_seats = seats_data.get("total_seats", 0) or len(seats_list)
-            if scope_users is not None:
-                billing_seats = len(seats_list)
 
             # Deduplicate by login: group seat records per unique user
             # (some users have 2 records while upgrading Business → Enterprise)
             now = datetime.now(timezone.utc)
-            from collections import defaultdict
             by_login: dict = defaultdict(list)
             for s in seats_list:
                 login = (s.get("assignee") or {}).get("login", "").lower()
@@ -197,6 +192,8 @@ async def get_overview(request: Request, group_id: int = Query(default=0)):
             seats = 0  # unique user count
             active = 0
             inactive = 0
+            org_plan_seats: dict[str, int] = {}    # plan → seat count for this org
+            org_plan_inactive: dict[str, int] = {} # plan → inactive count for this org
             for login, user_seats in by_login.items():
                 if not login:
                     continue
@@ -218,35 +215,46 @@ async def get_overview(request: Request, group_id: int = Query(default=0)):
                         except (ValueError, TypeError):
                             pass
 
+                org_plan_seats[plan] = org_plan_seats.get(plan, 0) + 1
                 plan_seats[plan] = plan_seats.get(plan, 0) + 1
                 if is_active:
                     active += 1
                     plan_active[plan] = plan_active.get(plan, 0) + 1
                 else:
                     inactive += 1
+                    org_plan_inactive[plan] = org_plan_inactive.get(plan, 0) + 1
 
                 # Count users who have at least one pending-cancellation seat
                 if any(s.get("pending_cancellation_date") for s in user_seats):
                     total_pending_cancellation += 1
+
+            # Calculate cost and waste per plan using correct per-plan pricing
+            for plan, count in org_plan_seats.items():
+                plan_price = COPILOT_PRICING.get(plan, COPILOT_PRICING["enterprise"])
+                total_cost += count * plan_price
+                total_waste += org_plan_inactive.get(plan, 0) * plan_price
         elif billing:
             sb = billing.get("seat_breakdown", {})
-            billing_seats = sb.get("total", 0)
-            seats = billing_seats
+            seats = sb.get("total", 0)
             active = sb.get("active_this_cycle", 0)
             inactive = seats - active
+            price = float(billing.get("_detected_price_per_seat", COPILOT_PRICING["enterprise"]) or COPILOT_PRICING["enterprise"])
+            total_cost += seats * price
+            total_waste += inactive * price
         else:
-            billing_seats = seats = active = inactive = 0
+            seats = active = inactive = 0
 
         total_seats += seats
         total_active += active
-        total_cost += billing_seats * price
-        total_waste += inactive * price
 
     plan_breakdown = [
         {
             "plan": plan,
             "seats": plan_seats[plan],
             "active": plan_active.get(plan, 0),
+            "inactive": plan_seats[plan] - plan_active.get(plan, 0),
+            "price_per_seat": COPILOT_PRICING.get(plan, COPILOT_PRICING["enterprise"]),
+            "monthly_cost": plan_seats[plan] * COPILOT_PRICING.get(plan, COPILOT_PRICING["enterprise"]),
         }
         for plan in sorted(plan_seats)
     ]
@@ -326,56 +334,101 @@ async def get_dashboard(request: Request, orgs: str = Query(default=""), group_i
         if not billing and not seats_data:
             continue
         available_orgs.append(org_name)
-        price = billing.get("_detected_price_per_seat", 19.0) if billing else 39.0
 
-        # Always derive seat counts from the actual seats list (same as get_overview)
-        # so that pending-cancellation seats are included and numbers match Lifecycle scan.
-        # Use billing total_seats only for cost calculation.
         seats_list = (seats_data or {}).get("seats", [])
-        billing_total = (seats_data or {}).get("total_seats", 0) or len(seats_list)
 
         if scope_users is not None:
-            # Group scope: only count seats belonging to the group
+            # Group scope: filter to group members, deduplicate by login, use per-plan pricing
             has_billing_error = True
+            # Deduplicate: group all seat records per login, then count unique users
+            by_login_g: dict = defaultdict(list)
+            for seat in seats_list:
+                login = (seat.get("assignee") or {}).get("login", "").lower()
+                if login and login in scope_users:
+                    by_login_g[login].append(seat)
             s = 0
             a = 0
+            grp_plan_seats: dict[str, int] = {}
+            grp_plan_inactive: dict[str, int] = {}
+            for login, user_seats in by_login_g.items():
+                s += 1
+                # Primary plan: prefer non-pending seat
+                non_pending = [seat for seat in user_seats if not seat.get("pending_cancellation_date")]
+                primary = non_pending[0] if non_pending else user_seats[0]
+                plan = (primary.get("plan_type") or "unknown").lower()
+                is_active = False
+                # User is active if ANY of their seat records shows recent activity
+                for seat in user_seats:
+                    last = seat.get("last_activity_at")
+                    if last:
+                        try:
+                            if (_now - datetime.fromisoformat(last.replace("Z", "+00:00"))).days < 30:
+                                is_active = True
+                                break
+                        except (ValueError, TypeError):
+                            pass
+                grp_plan_seats[plan] = grp_plan_seats.get(plan, 0) + 1
+                if is_active:
+                    a += 1
+                else:
+                    grp_plan_inactive[plan] = grp_plan_inactive.get(plan, 0) + 1
+            total_seats += s
+            active_seats += a
+            for plan, count in grp_plan_seats.items():
+                plan_price = COPILOT_PRICING.get(plan, COPILOT_PRICING["enterprise"])
+                monthly_cost += count * plan_price
+                monthly_waste += grp_plan_inactive.get(plan, 0) * plan_price
+        elif seats_list:
+            # Main path: deduplicate by login, calculate cost/waste per-plan
+            if not (billing and not billing.get("_billing_scope_error")):
+                has_billing_error = True
+            by_login_d: dict = defaultdict(list)
             for seat in seats_list:
-                login = (seat.get("assignee") or {}).get("login", "")
-                if login.lower() not in scope_users:
+                login = (seat.get("assignee") or {}).get("login", "").lower()
+                by_login_d[login].append(seat)
+            s = 0
+            a = 0
+            org_plan_seats: dict[str, int] = {}
+            org_plan_inactive: dict[str, int] = {}
+            for login, user_seats in by_login_d.items():
+                if not login:
                     continue
                 s += 1
-                last = seat.get("last_activity_at")
-                if last:
-                    try:
-                        if (_now - datetime.fromisoformat(last.replace("Z", "+00:00"))).days < 30:
-                            a += 1
-                    except (ValueError, TypeError):
-                        pass
-            billing_total = s  # cost based on actual group seat count
-        elif seats_list:
-            # Use full seats list for accurate total (includes pending-cancellation seats)
-            if billing and not billing.get("_billing_scope_error"):
-                pass  # billing_total already set above for cost
-            else:
-                has_billing_error = True
-                price = (billing.get("_detected_price_per_seat", 39.0) if billing else 39.0)
-            s = len(seats_list)
-            a = 0
-            for seat in seats_list:
-                last = seat.get("last_activity_at")
-                if last:
-                    try:
-                        if (_now - datetime.fromisoformat(last.replace("Z", "+00:00"))).days < 30:
-                            a += 1
-                    except (ValueError, TypeError):
-                        pass
-        else:
-            s = 0
-            a = 0
-        total_seats += s
-        active_seats += a
-        monthly_cost += billing_total * price
-        monthly_waste += (s - a) * price
+                # Primary plan: prefer non-pending seat
+                non_pending = [seat for seat in user_seats if not seat.get("pending_cancellation_date")]
+                primary = non_pending[0] if non_pending else user_seats[0]
+                plan = (primary.get("plan_type") or "unknown").lower()
+                is_active = False
+                for seat in user_seats:
+                    last = seat.get("last_activity_at")
+                    if last:
+                        try:
+                            if (_now - datetime.fromisoformat(last.replace("Z", "+00:00"))).days < 30:
+                                is_active = True
+                                break
+                        except (ValueError, TypeError):
+                            pass
+                org_plan_seats[plan] = org_plan_seats.get(plan, 0) + 1
+                if is_active:
+                    a += 1
+                else:
+                    org_plan_inactive[plan] = org_plan_inactive.get(plan, 0) + 1
+            total_seats += s
+            active_seats += a
+            for plan, count in org_plan_seats.items():
+                plan_price = COPILOT_PRICING.get(plan, COPILOT_PRICING["enterprise"])
+                monthly_cost += count * plan_price
+                monthly_waste += org_plan_inactive.get(plan, 0) * plan_price
+        elif billing:
+            # Fallback: billing data only, no seats list
+            price = float(billing.get("_detected_price_per_seat", COPILOT_PRICING["enterprise"]) or COPILOT_PRICING["enterprise"])
+            sb = billing.get("seat_breakdown", {})
+            s = sb.get("total", 0)
+            a = sb.get("active_this_cycle", 0)
+            total_seats += s
+            active_seats += a
+            monthly_cost += s * price
+            monthly_waste += (s - a) * price
 
     inactive_seats = total_seats - active_seats
     utilization_pct = round(active_seats / total_seats * 100, 1) if total_seats > 0 else 0
@@ -414,6 +467,15 @@ async def get_dashboard(request: Request, orgs: str = Query(default=""), group_i
 
         seats_data = data_collector.load_latest("seats", org_name)
         if seats_data:
+            # When billing data is unavailable, derive breakdown counts from seat records
+            if not billing:
+                for s in seats_data.get("seats", []):
+                    if scope_users is not None:
+                        login = (s.get("assignee") or {}).get("login", "")
+                        if login.lower() not in scope_users:
+                            continue
+                    if s.get("pending_cancellation_date"):
+                        seat_info["breakdown"]["pending_cancellation"] += 1
             for s in seats_data.get("seats", []):
                 assignee = s.get("assignee", {})
                 login = assignee.get("login", "")
@@ -856,16 +918,48 @@ def _build_api_usage_section(scope_users: set[str] | None = None) -> dict:
     }
 
 
+def _build_org_billing_models(all_scope_names: list[str]) -> dict:
+    """Load org-level billing model data from premium_requests snapshots."""
+    model_map: dict[str, dict] = defaultdict(lambda: {
+        "gross_qty": 0, "net_qty": 0, "gross_amount": 0.0, "net_amount": 0.0,
+    })
+    total_gross_qty = 0
+    total_net_qty = 0
+    total_gross_amount = 0.0
+    for scope in all_scope_names:
+        pr = data_collector.load_latest("premium_requests", scope)
+        if not pr:
+            continue
+        for item in pr.get("usageItems", []):
+            m = item.get("model", "unknown")
+            model_map[m]["gross_qty"] += item.get("grossQuantity", 0)
+            model_map[m]["net_qty"] += item.get("netQuantity", 0)
+            model_map[m]["gross_amount"] += item.get("grossAmount", 0.0)
+            model_map[m]["net_amount"] += item.get("netAmount", 0.0)
+            total_gross_qty += item.get("grossQuantity", 0)
+            total_net_qty += item.get("netQuantity", 0)
+            total_gross_amount += item.get("grossAmount", 0.0)
+    if not model_map:
+        return {}
+    return {
+        "models": sorted([{"model": k, **v} for k, v in model_map.items()], key=lambda x: -x["gross_qty"]),
+        "total_requests": total_gross_qty,
+        "net_requests": total_net_qty,
+        "total_cost": round(total_gross_amount, 4),
+    }
+
+
 def _build_api_premium_section(scope_users: set[str] | None = None) -> dict:
     """Build model usage stats from API-synced data.
 
-    When scope_users is provided, falls back to per-user usage_users data
-    (billing-level premium_requests has no per-user breakdown).
-    Otherwise tries premium_requests first, then totals_by_model_feature.
+    When scope_users is provided, returns group-level activity data PLUS
+    org-level billing data as context (billing API has no per-user breakdown).
+    Otherwise tries premium_requests billing first, then totals_by_model_feature.
     """
     all_scope_names = _get_all_scope_names()
 
-    # When group scope is active, build from per-user usage_users model data
+    # When group scope is active, build per-user activity data for the group
+    # and also include org-level billing data as context
     if scope_users is not None:
         activity_model_map: dict[str, dict] = defaultdict(lambda: {
             "interactions": 0, "code_gen": 0, "code_accept": 0,
@@ -883,8 +977,6 @@ def _build_api_premium_section(scope_users: set[str] | None = None) -> dict:
                     activity_model_map[m]["interactions"] += mf.get("user_initiated_interaction_count", 0)
                     activity_model_map[m]["code_gen"] += mf.get("code_generation_activity_count", 0)
                     activity_model_map[m]["code_accept"] += mf.get("code_acceptance_activity_count", 0)
-        if not activity_model_map:
-            return {"has_data": False, "models": [], "total_requests": 0, "net_requests": 0, "total_cost": 0.0, "scope_filtered": True}
         total_interactions = sum(v["interactions"] for v in activity_model_map.values())
         total_code_gen = sum(v["code_gen"] for v in activity_model_map.values())
         activity_models = sorted(
@@ -894,8 +986,10 @@ def _build_api_premium_section(scope_users: set[str] | None = None) -> dict:
              for k, v in activity_model_map.items() if v["interactions"] + v["code_gen"] > 0],
             key=lambda x: -x["gross_qty"],
         )
-        return {
-            "has_data": True,
+        # Also load org-level billing data for context
+        org_billing = _build_org_billing_models(all_scope_names)
+        result: dict = {
+            "has_data": bool(activity_model_map) or bool(org_billing),
             "source": "activity",
             "scope_filtered": True,
             "models": activity_models,
@@ -903,6 +997,15 @@ def _build_api_premium_section(scope_users: set[str] | None = None) -> dict:
             "net_requests": total_interactions,
             "total_cost": 0.0,
         }
+        if org_billing:
+            result["billing_models"] = org_billing["models"]
+            result["billing_total_requests"] = org_billing["total_requests"]
+            result["billing_net_requests"] = org_billing["net_requests"]
+            result["billing_total_cost"] = org_billing["total_cost"]
+        if not result["has_data"]:
+            result["has_data"] = False
+            result["models"] = []
+        return result
 
     # --- Try billing-level premium_requests data first ---
     model_map: dict[str, dict] = defaultdict(lambda: {
@@ -931,6 +1034,83 @@ def _build_api_premium_section(scope_users: set[str] | None = None) -> dict:
             [{"model": k, **v} for k, v in model_map.items()],
             key=lambda x: -x["gross_qty"],
         )
+        # Build per-user breakdown: prefer cached premium_requests_users (actual billing data),
+        # fall back to usage_users totals_by_model_feature (interaction-based estimate)
+        users: list[dict] = []
+
+        # Try actual billing data first
+        pru_users_data: dict | None = None
+        for scope in all_scope_names:
+            pru = data_collector.load_latest("premium_requests_users", scope)
+            if pru and pru.get("users"):
+                pru_users_data = pru
+                break
+
+        if pru_users_data:
+            # Determine quota per user — use HIGHEST quota when user appears with multiple plans
+            from ..config import PREMIUM_REQUEST_QUOTA_PER_USER
+            seats_quota: dict[str, int] = {}
+            for scope in all_scope_names:
+                sd = data_collector.load_latest("seats", scope)
+                if sd:
+                    for s in sd.get("seats", []):
+                        login = s.get("assignee", {}).get("login", "")
+                        plan = s.get("plan_type", "enterprise")
+                        if login:
+                            quota_for_plan = PREMIUM_REQUEST_QUOTA_PER_USER.get(plan, 1000)
+                            seats_quota[login] = max(seats_quota.get(login, 0), quota_for_plan)
+            user_entries = pru_users_data.get("users", {})
+            for login, ud in user_entries.items():
+                qty = ud.get("gross_qty", 0)
+                quota = seats_quota.get(login, 1000)
+                users.append({
+                    "user": login,
+                    "activity": qty,
+                    "top_model": ud.get("top_model", ""),
+                    "quota": quota,
+                    "quota_pct": round(qty / quota * 100, 1) if quota else 0,
+                    "pct": 0,  # filled after
+                    "source": "billing",
+                })
+            total_qty = sum(u["activity"] for u in users) or 1
+            for u in users:
+                u["pct"] = round(u["activity"] / total_qty * 100, 1)
+            users.sort(key=lambda x: -x["activity"])
+        else:
+            # Fallback: estimate from usage_users totals_by_model_feature
+            user_model_activity: dict[str, dict[str, int]] = defaultdict(lambda: defaultdict(int))
+            for scope in all_scope_names:
+                uu = data_collector.load_latest("usage_users", scope)
+                if not uu:
+                    continue
+                records = uu if isinstance(uu, list) else uu.get("records", [uu])
+                for rec in records:
+                    login = rec.get("user_login", "")
+                    if not login:
+                        continue
+                    for mf in rec.get("totals_by_model_feature", []):
+                        m = mf.get("model", "unknown")
+                        count = (
+                            mf.get("user_initiated_interaction_count", 0)
+                            + mf.get("code_generation_activity_count", 0)
+                        )
+                        user_model_activity[login][m] += count
+            user_summary: list[dict] = []
+            for login, model_counts in user_model_activity.items():
+                total = sum(model_counts.values())
+                if total == 0:
+                    continue
+                top_model = max(model_counts, key=lambda k: model_counts[k])
+                user_summary.append({"user": login, "activity": total, "top_model": top_model})
+            total_user_activity = sum(u["activity"] for u in user_summary) or 1
+            users = sorted(
+                [{"user": u["user"], "activity": u["activity"],
+                  "top_model": u["top_model"], "quota": None, "quota_pct": None,
+                  "pct": round(u["activity"] / total_user_activity * 100, 1),
+                  "source": "activity"}
+                 for u in user_summary],
+                key=lambda x: -x["activity"],
+            )
         return {
             "has_data": True,
             "source": "billing",
@@ -938,6 +1118,7 @@ def _build_api_premium_section(scope_users: set[str] | None = None) -> dict:
             "total_requests": total_gross_qty,
             "net_requests": total_net_qty,
             "total_cost": round(total_gross_amount, 4),
+            "users": users,
         }
 
     # --- Fallback: derive model usage from usage totals_by_model_feature ---
@@ -2592,11 +2773,13 @@ async def get_roi_dashboard(
                 continue
             price = float((billing or {}).get("_detected_price_per_seat", 39.0) or 39.0)
             if scope_users is not None:
-                seat_count = 0
+                # Deduplicate by login before counting
+                seen_logins: set = set()
                 for seat in (seats_data or {}).get("seats", []):
                     login = ((seat.get("assignee") or {}).get("login", "") or "").lower()
                     if login and login in scope_users:
-                        seat_count += 1
+                        seen_logins.add(login)
+                seat_count = len(seen_logins)
             elif billing and not billing.get("_billing_scope_error"):
                 seat_count = int((billing.get("seat_breakdown", {}) or {}).get("total", 0) or 0)
             else:

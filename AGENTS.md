@@ -56,7 +56,7 @@ live data directly from GitHub API for a specific day or the latest 28-day perio
 
 ---
 
-## Tool Catalog (17 Tools)
+## Tool Catalog (20 Tools)
 
 ### Seat Management Tools (`backend/app/tools/seat_tools.py`)
 
@@ -78,22 +78,25 @@ live data directly from GitHub API for a specific day or the latest 28-day perio
 | 9 | `get_user_premium_usage` | Read (CSV) | Get per-user premium request usage from uploaded CSV data. Shows each user's daily consumption by AI model, including costs, quota usage, and active days. |
 | 10 | `fetch_org_usage_report` | Read (Live) | Fetch LIVE org-level usage report directly from GitHub API. Supports specific day or 28-day report. Data available from Oct 10, 2025 onward. |
 | 11 | `fetch_org_users_usage_report` | Read (Live) | Fetch LIVE user-level usage report directly from GitHub API. Supports specific day or 28-day report. |
-| 12 | `fetch_premium_request_usage` | Read (Live) | Fetch LIVE premium request usage from GitHub API. Supports historical queries (year/month, up to 24 months). |
+| 12 | `fetch_premium_request_usage` | Read (Live) | Fetch LIVE org-level premium request / AIC usage from GitHub API (`GET /organizations/{org}/settings/billing/premium_request/usage`). Covers both billing models. Requires PAT `admin:org` scope + SSO-authorized for the org. |
+| 13 | `fetch_user_premium_request_usage` | Read (Live) | Fetch LIVE per-user premium request / AIC usage from GitHub API (`?user={username}`). Requires PAT `admin:org` scope + SSO authorization + enterprise owner or billing manager role. On failure, returns detailed error with required scopes and fix instructions. |
+| 14 | `fetch_enterprise_premium_request_usage` | Read (Live) | **RECOMMENDED for enterprise owners.** Fetch LIVE enterprise-wide premium request / AIC usage from GitHub API (`GET /enterprises/{enterprise}/settings/billing/premium_request/usage`). Leave user empty for all-users totals; specify username for per-user breakdown. Requires PAT `admin:enterprise` OR `manage_billing:enterprise` scope (NOT just `admin:org`). Returns detailed error with fix instructions if scope is missing. |
+| 15 | `get_user_copilot_quota_summary` | Read (Cached+CSV) | Combined per-user view showing AI completions (code_generation_activity_count), AIC consumed + org-pool share, and premium request consumed vs per-user quota. Official field: code_generation_activity_count. AIC fields (aic_quantity) may be preview. Premium requests: live via fetch_enterprise_premium_request_usage (enterprise owners) or CSV upload. |
 
 ### Billing & ROI Tools (`backend/app/tools/billing_tools.py`)
 
 | # | Tool | Type | Description |
 |---|------|------|-------------|
-| 13 | `get_cost_overview` | Read | Get cost overview across organizations. Shows total seats, active seats, wasted seats, monthly cost, estimated waste, and utilization percentage. |
-| 14 | `calculate_roi` | Read | Calculate ROI metrics: cost per active user, suggestions per dollar, acceptance rate, and efficiency metrics per organization. |
+| 16 | `get_cost_overview` | Read | Get cost overview across organizations. Shows total seats, active seats, wasted seats, monthly cost, estimated waste, and utilization percentage. |
+| 17 | `calculate_roi` | Read | Calculate ROI metrics: cost per active user, suggestions per dollar, acceptance rate, and efficiency metrics per organization. |
 
 ### Action & Recommendation Tools (`backend/app/tools/action_tools.py`)
 
 | # | Tool | Type | Description |
 |---|------|------|-------------|
-| 15 | `batch_remove_seats` | Write | Batch remove Copilot seats. Auto-detects org-level vs. team-level. Records action in audit log. Requires admin confirmation. |
-| 16 | `record_recommendation` | Write | Record an AI-generated recommendation for admin review. Supports types: remove_seats, send_reminder, upgrade_plan, downgrade_plan. Stored in Action Panel. |
-| 17 | `get_recommendations` | Read | Get recorded recommendations filtered by status (pending, approved, rejected, executed, all). |
+| 18 | `batch_remove_seats` | Write | Batch remove Copilot seats. Auto-detects org-level vs. team-level. Records action in audit log. Requires admin confirmation. |
+| 19 | `record_recommendation` | Write | Record an AI-generated recommendation for admin review. Supports types: remove_seats, send_reminder, upgrade_plan, downgrade_plan. Stored in Action Panel. |
+| 20 | `get_recommendations` | Read | Get recorded recommendations filtered by status (pending, approved, rejected, executed, all). |
 
 ---
 

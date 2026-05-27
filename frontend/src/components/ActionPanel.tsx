@@ -1,13 +1,9 @@
 import { usePendingActions } from "../hooks/useData";
 import { useI18n } from "../contexts/I18nContext";
-import type { Recommendation } from "../types";
+interface ActionPanelProps {}
 
-interface ActionPanelProps {
-  onExecute?: (rec: Recommendation) => void;
-}
-
-export function ActionPanel({ onExecute }: ActionPanelProps) {
-  const { recommendations, loading, executeAction, rejectAction } = usePendingActions();
+export function ActionPanel({}: ActionPanelProps) {
+  const { recommendations, loading, rejectAction } = usePendingActions();
   const { t } = useI18n();
 
   if (loading) return <div className="sidebar-section loading">{t("loading.actions")}</div>;
@@ -37,16 +33,10 @@ export function ActionPanel({ onExecute }: ActionPanelProps) {
               )}
               <div className="action-buttons">
                 <button
-                  className="btn btn-approve"
-                  onClick={() => onExecute ? onExecute(rec) : executeAction(rec.id)}
-                >
-                  {t("actions.approve")}
-                </button>
-                <button
-                  className="btn btn-reject"
+                  className="btn btn-dismiss"
                   onClick={() => rejectAction(rec.id)}
                 >
-                  {t("actions.reject")}
+                  {t("actions.dismiss")}
                 </button>
               </div>
             </div>

@@ -70,6 +70,9 @@ export function Dashboard({ refreshKey }: Props) {
   const { trend } = useKpiTrend(selectedOrgs ?? [], ui.selectedGroupId);
   const [drilldownUser, setDrilldownUser] = useState<string | null>(null);
   const [selectedFeature, setSelectedFeature] = useState<string | null>(null);
+  const [seatFilterPlan, setSeatFilterPlan] = useState<string>("all");
+  const [seatFilterStatus, setSeatFilterStatus] = useState<string>("all");
+  const [seatSort, setSeatSort] = useState<{ col: string; dir: "asc" | "desc" }>({ col: "", dir: "asc" });
 
   const dateFrom = ui.dashboardDateFrom;
   const setDateFrom = useCallback((v: string) => ui.patch({ dashboardDateFrom: v }), [ui.patch]);
@@ -242,10 +245,12 @@ export function Dashboard({ refreshKey }: Props) {
             {trend?.has_data && (
               <>
                 <div className="stat-card stat-card-trend">
+                  <InfoIcon id="kpi_acceptance_rate" />
                   <div className="stat-value">{trend.current.acceptance_rate?.toFixed(1)}%</div>
                   <div className="stat-label">Acceptance Rate (7d) {delta("acceptance_rate_pt")}</div>
                 </div>
                 <div className="stat-card stat-card-trend">
+                  <InfoIcon id="kpi_avg_dau" />
                   <div className="stat-value">{trend.current.avg_dau?.toFixed(1)}</div>
                   <div className="stat-label">Avg DAU (7d) {delta("dau_pct")}</div>
                 </div>
@@ -621,64 +626,97 @@ export function Dashboard({ refreshKey }: Props) {
           </Section>
 
           {/* ===== Section: Seat Management ===== */}
-          {data.seat_info && data.seat_info.seats.length > 0 && (
-            <Section sectionKey="seatMgmt" title={t("dashboard.seatMgmt")} infoKey="section_seatMgmt" defaultOpen={false}>
-              <div className="dashboard-charts">
-                <div className="chart-card chart-card-wide">
-                  <div className="dash-seat-summary">
-                    {Object.entries(data.seat_info.plans).map(([plan, count]) => (
-                      <span key={plan} className="dash-badge">{plan}: {count}</span>
-                    ))}
-                    {Object.entries(data.seat_info.features).map(([feat, val]) => (
-                      <span key={feat} className="dash-badge dash-badge-muted">{feat}: {val}</span>
-                    ))}
-                    <span className="dash-badge">Pending Invite: {data.seat_info.breakdown.pending_invitation}</span>
-                    <span className="dash-badge">Pending Cancel: {data.seat_info.breakdown.pending_cancellation}</span>
-                    <span className="dash-badge">Added This Cycle: {data.seat_info.breakdown.added_this_cycle}</span>
-                    <button className="btn btn-small" style={{ marginLeft: "auto" }}
-                      onClick={() => exportCSV("seats", data.seat_info.seats)}>⬇ CSV</button>
-                  </div>
-                  <div className="dashboard-table-wrap" style={{ maxHeight: 400 }}>
-                    <table className="dashboard-table">
-                      <thead>
-                        <tr>
-                          <th>User</th>
-                          <th>Org</th>
-                          <th>Team</th>
-                          <th>Last Activity</th>
-                          <th>Editor</th>
-                          <th>Status</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {data.seat_info.seats.map((s) => {
-                          const inactive = !s.last_activity_at;
-                          const pending = !!s.pending_cancellation_date;
-                          return (
-                            <tr key={`${s.org}-${s.user}`} className="clickable-row" onClick={() => setDrilldownUser(s.user)}>
-                              <td className="user-name">
-                                {s.avatar && <img src={s.avatar} alt="" className="dash-seat-avatar" />}
-                                <span className="user-link">{s.user}</span>
-                              </td>
-                              <td>{s.org}</td>
-                              <td>{s.team || "—"}</td>
-                              <td>{s.last_activity_at ? s.last_activity_at.slice(0, 10) : "Never"}</td>
-                              <td>{s.last_activity_editor || "—"}</td>
-                              <td>
-                                {pending ? <span className="dash-status-badge danger">Cancelling</span>
-                                  : inactive ? <span className="dash-status-badge warning">Inactive</span>
-                                  : <span className="dash-status-badge success">Active</span>}
-                              </td>
-                            </tr>
-                          );
-                        })}
-                      </tbody>
-                    </table>
+          {data.seat_info && data.seat_info.seats.length > 0 && (() => {
+            const seatStatus = (s: typeof data.seat_info.seats[0]) =>
+              s.pending_cancellation_date ? "cancelling" : !s.last_activity_at ? "inactive" : "active";
+            const planOptions = Array.from(new Set(data.seat_info.seats.map(s => s.plan_type).filter(Boolean)));
+            const filteredSeats = data.seat_info.seats
+              .filter(s => seatFilterPlan === "all" || s.plan_type === seatFilterPlan)
+              .filter(s => seatFilterStatus === "all" || seatStatus(s) === seatFilterStatus)
+              .sort((a, b) => {
+                if (!seatSort.col) return 0;
+                let av = "", bv = "";
+                if (seatSort.col === "plan") { av = a.plan_type || ""; bv = b.plan_type || ""; }
+                else if (seatSort.col === "status") { av = seatStatus(a); bv = seatStatus(b); }
+                else if (seatSort.col === "activity") { av = a.last_activity_at || ""; bv = b.last_activity_at || ""; }
+                const cmp = av.localeCompare(bv);
+                return seatSort.dir === "asc" ? cmp : -cmp;
+              });
+            const toggleSort = (col: string) => setSeatSort(prev =>
+              prev.col === col ? { col, dir: prev.dir === "asc" ? "desc" : "asc" } : { col, dir: "asc" }
+            );
+            const sortIcon = (col: string) => seatSort.col === col ? (seatSort.dir === "asc" ? " ▲" : " ▼") : " ⇅";
+            return (
+              <Section sectionKey="seatMgmt" title={t("dashboard.seatMgmt")} infoKey="section_seatMgmt" defaultOpen={false}>
+                <div className="dashboard-charts">
+                  <div className="chart-card chart-card-wide">
+                    <div className="dash-seat-summary">
+                      {Object.entries(data.seat_info.plans).map(([plan, count]) => (
+                        <span key={plan} className="dash-badge">{plan}: {count}</span>
+                      ))}
+                      {Object.entries(data.seat_info.features).map(([feat, val]) => (
+                        <span key={feat} className="dash-badge dash-badge-muted">{feat}: {val}</span>
+                      ))}
+                      <span className="dash-badge">Pending Invite: {data.seat_info.breakdown.pending_invitation}</span>
+                      <span className="dash-badge">Pending Cancel: {data.seat_info.breakdown.pending_cancellation}</span>
+                      <span className="dash-badge">Added This Cycle: {data.seat_info.breakdown.added_this_cycle}</span>
+                      <button className="btn btn-small" style={{ marginLeft: "auto" }}
+                        onClick={() => exportCSV("seats", data.seat_info.seats)}>⬇ CSV</button>
+                    </div>
+                    <div style={{ display: "flex", gap: 8, marginBottom: 8, flexWrap: "wrap" }}>
+                      <select className="filter-select" value={seatFilterPlan} onChange={e => setSeatFilterPlan(e.target.value)}>
+                        <option value="all">All License Types</option>
+                        {planOptions.map(p => <option key={p} value={p}>{p}</option>)}
+                      </select>
+                      <select className="filter-select" value={seatFilterStatus} onChange={e => setSeatFilterStatus(e.target.value)}>
+                        <option value="all">All Statuses</option>
+                        <option value="active">Active</option>
+                        <option value="inactive">Inactive</option>
+                        <option value="cancelling">Cancelling</option>
+                      </select>
+                      <span style={{ fontSize: 12, color: "var(--text-secondary)", alignSelf: "center" }}>{filteredSeats.length} records</span>
+                    </div>
+                    <div className="dashboard-table-wrap" style={{ maxHeight: 400 }}>
+                      <table className="dashboard-table">
+                        <thead>
+                          <tr>
+                            <th>User</th>
+                            <th>Org</th>
+                            <th>Team</th>
+                            <th style={{ cursor: "pointer" }} onClick={() => toggleSort("plan")}>License Type{sortIcon("plan")}</th>
+                            <th style={{ cursor: "pointer" }} onClick={() => toggleSort("activity")}>Last Activity{sortIcon("activity")}</th>
+                            <th style={{ cursor: "pointer" }} onClick={() => toggleSort("status")}>Status{sortIcon("status")}</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {filteredSeats.map((s) => {
+                            const status = seatStatus(s);
+                            return (
+                              <tr key={`${s.org}-${s.user}-${s.plan_type}`} className="clickable-row" onClick={() => setDrilldownUser(s.user)}>
+                                <td className="user-name">
+                                  {s.avatar && <img src={s.avatar} alt="" className="dash-seat-avatar" />}
+                                  <span className="user-link">{s.user}</span>
+                                </td>
+                                <td>{s.org}</td>
+                                <td>{s.team || "—"}</td>
+                                <td>{s.plan_type || "—"}</td>
+                                <td>{s.last_activity_at ? s.last_activity_at.slice(0, 10) : "Never"}</td>
+                                <td>
+                                  {status === "cancelling" ? <span className="dash-status-badge danger">Cancelling</span>
+                                    : status === "inactive" ? <span className="dash-status-badge warning">Inactive</span>
+                                    : <span className="dash-status-badge success">Active</span>}
+                                </td>
+                              </tr>
+                            );
+                          })}
+                        </tbody>
+                      </table>
+                    </div>
                   </div>
                 </div>
-              </div>
-            </Section>
-          )}
+              </Section>
+            );
+          })()}
 
           {/* ===== Section: Top Active Users ===== */}
           <Section sectionKey="topUsers" title={t("dashboard.topUsers")} infoKey="section_topUsers">

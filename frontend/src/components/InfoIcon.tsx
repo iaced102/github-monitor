@@ -1,11 +1,13 @@
 import { useState, useEffect } from "react";
+import type { ReactNode } from "react";
 import { INFO } from "../data/infoContent";
 
 interface Props {
   id: string;
+  extraContent?: ReactNode;
 }
 
-export function InfoIcon({ id }: Props) {
+export function InfoIcon({ id, extraContent }: Props) {
   const [open, setOpen] = useState(false);
   const content = INFO[id];
 
@@ -67,6 +69,12 @@ export function InfoIcon({ id }: Props) {
                 <div className="info-modal-tip">
                   <span className="info-tip-icon">💡</span>
                   <span>{content.tip}</span>
+                </div>
+              )}
+
+              {extraContent && (
+                <div className="info-modal-extra">
+                  {extraContent}
                 </div>
               )}
             </div>

@@ -537,6 +537,148 @@ class DataCollector:
                 if log_fn:
                     log_fn("error", f"  {slug}: premium requests error - {e}")
 
+            # Per-user premium requests (fetches each seat holder individually in parallel)
+            try:
+                seats_data = self.load_latest("seats", slug)
+                seat_list = seats_data.get("seats", []) if seats_data else []
+                logins = [s.get("assignee", {}).get("login") for s in seat_list if s.get("assignee", {}).get("login")]
+                if logins:
+                    import asyncio as _asyncio
+                    async def _fetch_user_prem(login: str):
+                        try:
+                            result = await api.get_enterprise_premium_request_usage(slug, user=login)
+                            if result and not result.get("_error"):
+                                total = sum(i.get("grossQuantity", 0) for i in result.get("usageItems", []))
+                                top_item = max(result.get("usageItems", [{"model": ""}]), key=lambda x: x.get("grossQuantity", 0), default={"model": ""})
+                                return login, {"gross_qty": total, "top_model": top_item.get("model", ""), "items": result.get("usageItems", [])}
+                        except Exception:
+                            pass
+                        return login, None
+
+                    pairs = await _asyncio.gather(*[_fetch_user_prem(l) for l in logins])
+                    period = premium.get("timePeriod", {}) if premium else {}
+                    users_prem = {login: data for login, data in pairs if data is not None}
+                    self._save_json("premium_requests_users", slug, {
+                        "enterprise": slug,
+                        "period": period,
+                        "users": users_prem,
+                        "total_users": len(users_prem),
+                    })
+                    summary["synced"].append(f"premium_requests_users/{slug} ({len(users_prem)} users)")
+                    if log_fn:
+                        log_fn("info", f"  {slug}: per-user premium requests synced ({len(users_prem)} users)")
+            except Exception as e:
+                summary["errors"].append(f"premium_requests_users/{slug}: {e}")
+                if log_fn:
+                    log_fn("error", f"  {slug}: per-user premium requests error - {e}")
+
+        return summary
+
+    async def sync_github_teams(self, log_fn: LogFn = None) -> dict:
+        """Sync GitHub Enterprise teams → user groups in the database.
+
+        For every discovered enterprise, lists all enterprise-level teams and
+        their members, then upserts groups named '{enterprise}/{team_name}'
+        with a full member replace.
+        Falls back to org-level teams if no enterprise teams are found.
+        Called automatically as part of sync_all().
+
+        Returns a summary dict with counts and any errors.
+        """
+        summary: dict = {"synced": [], "errors": []}
+
+        if not self._api_manager:
+            return summary
+
+        db = self._db
+        if db is None:
+            return summary
+
+        enterprises = self._api_manager.get_all_enterprises()
+
+        if not enterprises:
+            if log_fn:
+                log_fn("info", "  No enterprises discovered, skipping enterprise teams sync")
+            return summary
+
+        if log_fn:
+            log_fn("info", f"Syncing GitHub Enterprise Teams for {len(enterprises)} enterprise(s)...")
+
+        groups_created = 0
+        groups_updated = 0
+        members_synced = 0
+
+        for ent in enterprises:
+            slug = ent.get("slug", "")
+            if not slug:
+                continue
+
+            api = self._api_manager.get_api_for_enterprise(slug)
+            if not api:
+                summary["errors"].append(f"{slug}: no API client")
+                continue
+
+            try:
+                teams = await api.list_enterprise_teams(slug)
+            except Exception as e:
+                summary["errors"].append(f"{slug}: list_enterprise_teams failed - {e}")
+                if log_fn:
+                    log_fn("error", f"  {slug}: list_enterprise_teams error - {e}")
+                continue
+
+            if not teams:
+                if log_fn:
+                    log_fn("info", f"  {slug}: no enterprise teams (or access denied)")
+                continue
+
+            if log_fn:
+                log_fn("info", f"  {slug}: found {len(teams)} team(s)")
+
+            for team in teams:
+                team_name: str = team.get("name") or ""
+                team_id: int = team.get("id") or 0
+                if not team_name or not team_id:
+                    continue
+
+                group_name = f"{slug}/{team_name}"
+                description = f"Synced from GitHub Enterprise team '{team_name}' in enterprise '{slug}'"
+
+                try:
+                    members_raw = await api.get_enterprise_team_members(slug, team_id)
+                    usernames = [
+                        m.get("login", "").lower()
+                        for m in members_raw
+                        if m.get("login")
+                    ]
+
+                    grp = db.get_group_by_name(group_name)
+                    if grp is None:
+                        gid = db.create_group(group_name, description)
+                        groups_created += 1
+                    else:
+                        gid = grp["id"]
+                        db.update_group(gid, name=group_name, description=description)
+                        groups_updated += 1
+                        for existing in db.get_group_members(gid):
+                            db.remove_group_member(gid, existing)
+
+                    if usernames:
+                        db.add_group_members(gid, usernames)
+                        members_synced += len(usernames)
+
+                    summary["synced"].append(f"team/{slug}/{team_name} ({len(usernames)} members)")
+                except Exception as e:
+                    summary["errors"].append(f"{slug}/{team_name}: {e}")
+                    if log_fn:
+                        log_fn("error", f"  {slug}/{team_name}: error - {e}")
+
+        if log_fn:
+            log_fn(
+                "info",
+                f"  Enterprise teams sync: {groups_created} created, {groups_updated} updated, "
+                f"{members_synced} members synced",
+            )
+
         return summary
 
     async def sync_all(self, log_fn: LogFn = None) -> list[dict]:
@@ -567,6 +709,12 @@ class DataCollector:
             log_fn("info", "Syncing enterprise and cost center data...")
         enterprise_summary = await self.sync_enterprises(log_fn=log_fn)
         results.append({"org": "__enterprise__", **enterprise_summary})
+
+        # Sync GitHub Teams → user groups
+        if log_fn:
+            log_fn("info", "Syncing GitHub Teams → groups...")
+        teams_summary = await self.sync_github_teams(log_fn=log_fn)
+        results.append({"org": "__teams__", **teams_summary})
 
         if log_fn:
             total_synced = sum(len(r["synced"]) for r in results)

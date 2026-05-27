@@ -47,7 +47,7 @@ export interface Overview {
   monthly_cost: number;
   monthly_waste: number;
   annual_waste: number;
-  plan_breakdown?: { plan: string; seats: number; active: number }[];
+  plan_breakdown?: { plan: string; seats: number; active: number; inactive: number; price_per_seat: number; monthly_cost: number }[];
   pending_cancellation?: number;
   active_window_days?: number;
 }
@@ -258,6 +258,11 @@ export interface ApiPremiumSection {
   total_requests: number;
   net_requests: number;
   total_cost: number;
+  users?: { user: string; activity: number; pct: number; top_model?: string; quota?: number; quota_pct?: number; source?: string }[];
+  billing_models?: { model: string; gross_qty: number; net_qty: number; gross_amount: number; net_amount: number }[];
+  billing_total_requests?: number;
+  billing_net_requests?: number;
+  billing_total_cost?: number;
 }
 
 export interface SeatFallbackUser {

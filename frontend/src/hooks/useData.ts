@@ -69,17 +69,6 @@ export function usePendingActions() {
     fetchPending();
   }, [fetchPending]);
 
-  const executeAction = useCallback(async (id: string) => {
-    const res = await fetch("/api/actions/execute", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ recommendation_id: id }),
-    });
-    const result = await res.json();
-    await fetchPending();
-    return result;
-  }, [fetchPending]);
-
   const rejectAction = useCallback(async (id: string) => {
     const res = await fetch("/api/actions/reject", {
       method: "POST",
@@ -91,7 +80,7 @@ export function usePendingActions() {
     return result;
   }, [fetchPending]);
 
-  return { recommendations, loading, refetch: fetchPending, executeAction, rejectAction };
+  return { recommendations, loading, refetch: fetchPending, rejectAction };
 }
 
 export function useSync() {

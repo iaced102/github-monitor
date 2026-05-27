@@ -34,6 +34,12 @@ AIC_PROMO_PER_USER = {
 AIC_PROMO_START = "2026-06-01"
 AIC_PROMO_END = "2026-09-01"
 
+# Premium request quota per user per month (old billing model, before June 1, 2026)
+PREMIUM_REQUEST_QUOTA_PER_USER = {
+    "business": 300,
+    "enterprise": 1000,
+}
+
 
 class AppConfig:
     def __init__(self):

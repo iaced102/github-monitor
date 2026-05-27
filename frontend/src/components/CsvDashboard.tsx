@@ -95,11 +95,19 @@ function Section({ sectionKey, title, infoKey, defaultOpen = true, children }: {
 function ApiPremiumContent({ data }: { data: ApiPremiumSection }) {
   const { t } = useI18n();
   const isActivity = data.source === "activity";
+  const hasBillingContext = isActivity && data.billing_models && data.billing_models.length > 0;
+
+  // Build pie chart data for cost distribution (billing mode only)
+  const billingModels = !isActivity ? data.models : (data.billing_models ?? []);
+  const pieData = billingModels
+    .filter((m) => m.gross_amount > 0)
+    .map((m, i) => ({ name: m.model, value: m.gross_amount, color: COLORS[i % COLORS.length] }));
 
   return (
     <>
-      <div className="dashboard-notice" style={{ marginBottom: 12, padding: "8px 14px", background: "var(--bg-secondary)", border: "1px solid var(--border)", borderRadius: 8, fontSize: 12, color: "var(--text-muted)" }}>
-        {isActivity ? t("csvDash.apiModelActivitySource") : t("csvDash.apiDataSource")}
+      <div className="dashboard-notice" style={{ marginBottom: 12, padding: "8px 14px", background: "var(--bg-secondary)", border: "1px solid var(--border)", borderRadius: 8, fontSize: 12, color: "var(--text-muted)", display: "flex", alignItems: "center", gap: 8 }}>
+        <span>{isActivity ? t("csvDash.apiModelActivitySource") : t("csvDash.apiDataSource")}</span>
+        <InfoIcon id="csv_section_apiPremiumKpi" />
       </div>
       <div className="dashboard-kpi">
         {isActivity ? (
@@ -116,15 +124,15 @@ function ApiPremiumContent({ data }: { data: ApiPremiumSection }) {
         ) : (
           <>
             <div className="stat-card">
-              <div className="stat-value">{data.total_requests.toLocaleString()}</div>
+              <div className="stat-value">{Math.round(data.total_requests).toLocaleString()}</div>
               <div className="stat-label">{t("csvDash.totalRequests")}</div>
             </div>
             <div className="stat-card">
-              <div className="stat-value">{data.net_requests.toLocaleString()}</div>
+              <div className="stat-value">{Math.round(data.net_requests).toLocaleString()}</div>
               <div className="stat-label">{t("csvDash.netRequests")}</div>
             </div>
             <div className="stat-card cost">
-              <div className="stat-value cost">${data.total_cost.toFixed(4)}</div>
+              <div className="stat-value cost">${data.total_cost.toFixed(2)}</div>
               <div className="stat-label">{t("csvDash.totalCost")}</div>
             </div>
           </>
@@ -135,35 +143,187 @@ function ApiPremiumContent({ data }: { data: ApiPremiumSection }) {
         </div>
       </div>
 
-      <Section sectionKey="apiPremiumModels" title={t("csvDash.modelBreakdown")}>
+      <Section sectionKey="apiPremiumModels" title={t("csvDash.modelBreakdown")} infoKey="csv_section_apiPremiumModels">
         <div className="dashboard-charts">
-          <div className="chart-card chart-card-wide">
-            {data.models.length > 0 ? (
-              <ResponsiveContainer width="100%" height={Math.max(200, data.models.length * 48)}>
+          {/* Pie chart — cost distribution (billing mode or org context) */}
+          {pieData.length > 0 && (
+            <div className="chart-card">
+              <ChartTitle text={`${t("csvDash.costByModel")}${hasBillingContext ? " (toàn tổ chức)" : ""}`} infoKey="csv_chart_apiPremiumCostByModel" />
+              <ResponsiveContainer width="100%" height={280}>
+                <PieChart>
+                  <Pie
+                    data={pieData}
+                    dataKey="value"
+                    nameKey="name"
+                    cx="50%"
+                    cy="50%"
+                    outerRadius={100}
+                    innerRadius={52}
+                    paddingAngle={2}
+                    label={({ name, percent }) => `${(name ?? "").length > 18 ? (name ?? "").slice(0, 16) + "…" : (name ?? "")} ${((percent ?? 0) * 100).toFixed(0)}%`}
+                    labelLine={false}
+                  >
+                    {pieData.map((entry) => (
+                      <Cell key={entry.name} fill={entry.color} />
+                    ))}
+                  </Pie>
+                  <Tooltip
+                    contentStyle={TOOLTIP_STYLE}
+                    formatter={(v: any) => `$${Number(v).toFixed(2)}`}
+                  />
+                </PieChart>
+              </ResponsiveContainer>
+            </div>
+          )}
+
+          {/* Horizontal bar chart — activity (group-filtered) */}
+          {isActivity && data.models.length > 0 && (
+            <div className={pieData.length > 0 ? "chart-card" : "chart-card chart-card-wide"}>
+              <ChartTitle text={t("monitor.modelActivity")} infoKey="csv_section_apiPremiumModels" />
+              <ResponsiveContainer width="100%" height={Math.max(200, data.models.length * 44)}>
                 <BarChart data={data.models} layout="vertical">
                   <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" />
                   <XAxis type="number" tick={{ fontSize: 11, fill: "var(--text-muted)" }} />
                   <YAxis dataKey="model" type="category" width={190} tick={{ fontSize: 11, fill: "var(--text-muted)" }} />
-                  <Tooltip contentStyle={TOOLTIP_STYLE} />
-                  {isActivity ? (
-                    <>
-                      <Bar dataKey="interactions" name={t("dashboard.interactions")} fill="#bc8cff" radius={[0, 4, 4, 0]} />
-                      <Bar dataKey="code_gen" name={t("dashboard.codeGen")} fill="#58a6ff" radius={[0, 4, 4, 0]} />
-                      <Bar dataKey="code_accept" name={t("dashboard.codeAccept")} fill="#3fb950" radius={[0, 4, 4, 0]} />
-                    </>
-                  ) : (
-                    <>
-                      <Bar dataKey="gross_qty" name={t("csvDash.totalRequests")} fill="#bc8cff" radius={[0, 4, 4, 0]} />
-                      <Bar dataKey="net_qty" name={t("csvDash.netRequests")} fill="#3fb950" radius={[0, 4, 4, 0]} />
-                    </>
-                  )}
+                  <Tooltip contentStyle={TOOLTIP_STYLE} formatter={(v: any) => Math.round(Number(v)).toLocaleString()} />
+                  <Bar dataKey="interactions" name={t("dashboard.interactions")} fill="#bc8cff" radius={[0, 4, 4, 0]} />
+                  <Bar dataKey="code_gen" name={t("dashboard.codeGen")} fill="#58a6ff" radius={[0, 4, 4, 0]} />
+                  <Bar dataKey="code_accept" name={t("dashboard.codeAccept")} fill="#3fb950" radius={[0, 4, 4, 0]} />
                   <Legend wrapperStyle={{ fontSize: 12 }} />
                 </BarChart>
               </ResponsiveContainer>
-            ) : <div className="chart-empty">{t("csvDash.noData")}</div>}
-          </div>
+            </div>
+          )}
+
+          {/* Horizontal bar chart — billing requests (org-level or direct billing) */}
+          {!isActivity && (
+            <div className={pieData.length > 0 ? "chart-card" : "chart-card chart-card-wide"}>
+              <ChartTitle text={t("csvDash.requestsByModel")} infoKey="csv_section_apiPremiumModels" />
+              {data.models.length > 0 ? (
+                <ResponsiveContainer width="100%" height={Math.max(200, data.models.length * 44)}>
+                  <BarChart data={data.models} layout="vertical">
+                    <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" />
+                    <XAxis type="number" tick={{ fontSize: 11, fill: "var(--text-muted)" }} />
+                    <YAxis dataKey="model" type="category" width={190} tick={{ fontSize: 11, fill: "var(--text-muted)" }} />
+                    <Tooltip
+                      contentStyle={TOOLTIP_STYLE}
+                      formatter={(v: any, name?: string) =>
+                        name?.toLowerCase().includes("cost") ? `$${Number(v).toFixed(2)}` : Math.round(Number(v)).toLocaleString()
+                      }
+                    />
+                    <Bar dataKey="gross_qty" name={t("csvDash.totalRequests")} fill="#bc8cff" radius={[0, 4, 4, 0]} />
+                    <Bar dataKey="gross_amount" name={t("csvDash.grossAmount")} fill="#58a6ff" radius={[0, 4, 4, 0]} />
+                    <Legend wrapperStyle={{ fontSize: 12 }} />
+                  </BarChart>
+                </ResponsiveContainer>
+              ) : <div className="chart-empty">{t("csvDash.noData")}</div>}
+            </div>
+          )}
+
+          {/* Org-level billing request chart when group filter is active */}
+          {hasBillingContext && billingModels.length > 0 && (
+            <div className="chart-card chart-card-wide">
+              <ChartTitle text={`${t("csvDash.requestsByModel")} (toàn tổ chức)`} infoKey="csv_section_apiPremiumModels" />
+              <ResponsiveContainer width="100%" height={Math.max(200, billingModels.length * 44)}>
+                <BarChart data={billingModels} layout="vertical">
+                  <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" />
+                  <XAxis type="number" tick={{ fontSize: 11, fill: "var(--text-muted)" }} />
+                  <YAxis dataKey="model" type="category" width={190} tick={{ fontSize: 11, fill: "var(--text-muted)" }} />
+                  <Tooltip
+                    contentStyle={TOOLTIP_STYLE}
+                    formatter={(v: any, name?: string) =>
+                      name?.toLowerCase().includes("cost") ? `$${Number(v).toFixed(2)}` : Math.round(Number(v)).toLocaleString()
+                    }
+                  />
+                  <Bar dataKey="gross_qty" name={t("csvDash.totalRequests")} fill="#bc8cff" radius={[0, 4, 4, 0]} />
+                  <Bar dataKey="gross_amount" name={t("csvDash.grossAmount")} fill="#58a6ff" radius={[0, 4, 4, 0]} />
+                  <Legend wrapperStyle={{ fontSize: 12 }} />
+                </BarChart>
+              </ResponsiveContainer>
+            </div>
+          )}
         </div>
+
+        {/* Org-level billing KPI when group filter is active */}
+        {hasBillingContext && (
+          <div className="dashboard-kpi" style={{ marginTop: 12 }}>
+            <div className="stat-card" style={{ opacity: 0.8 }}>
+              <div className="stat-value" style={{ fontSize: 18 }}>{Math.round(data.billing_total_requests ?? 0).toLocaleString()}</div>
+              <div className="stat-label">{t("csvDash.totalRequests")} (tổ chức)</div>
+            </div>
+            <div className="stat-card cost" style={{ opacity: 0.8 }}>
+              <div className="stat-value cost" style={{ fontSize: 18 }}>${(data.billing_total_cost ?? 0).toFixed(2)}</div>
+              <div className="stat-label">{t("csvDash.totalCost")} (tổ chức)</div>
+            </div>
+            <div className="stat-card" style={{ opacity: 0.8 }}>
+              <div className="stat-value" style={{ fontSize: 18 }}>{billingModels.length}</div>
+              <div className="stat-label">{t("csvDash.uniqueModels")} (tổ chức)</div>
+            </div>
+          </div>
+        )}
       </Section>
+
+      {/* Per-user breakdown (billing mode) */}
+      {!isActivity && data.users && data.users.length > 0 && (() => {
+        const hasBilling = data.users.some(u => u.source === "billing" && u.quota != null);
+        return (
+          <Section sectionKey="apiPremiumUsers" title={t("csvDash.userTable")} infoKey="csv_section_apiPremiumUsers">
+            <div className="dashboard-charts">
+              <div className="chart-card chart-card-wide">
+                <div style={{ fontSize: 11, color: "var(--text-muted)", marginBottom: 8 }}>
+                  ℹ️ {hasBilling ? t("csvDash.premiumUserNoteBilling") : t("csvDash.premiumUserNote")}
+                </div>
+                <div style={{ display: "flex", justifyContent: "flex-end", marginBottom: 6 }}>
+                  <button className="btn btn-small" onClick={() => exportCSV("premium-users-activity", data.users!)}>⬇ CSV</button>
+                </div>
+                <div className="dashboard-table-wrap">
+                  <table className="dashboard-table">
+                    <thead>
+                      <tr>
+                        <th>#</th>
+                        <th>{t("csvDash.user")}</th>
+                        <th>{t("monitor.topModel")}</th>
+                        <th>{t("csvDash.totalRequests")}</th>
+                        {hasBilling && <th>{t("csvDash.quota")}</th>}
+                        {hasBilling
+                          ? <th style={{ minWidth: 160 }}>{t("csvDash.quotaUsage")}</th>
+                          : <th style={{ minWidth: 140 }}>% {t("monitor.total")}</th>}
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {data.users.map((u, i) => {
+                        const quotaPct = u.quota_pct ?? u.pct;
+                        const barColor = (u.quota_pct ?? 0) >= 90 ? "#f85149"
+                          : (u.quota_pct ?? 0) >= 70 ? "#e3b341" : "#bc8cff";
+                        return (
+                          <tr key={u.user}>
+                            <td className="rank">{i + 1}</td>
+                            <td className="user-name">{u.user}</td>
+                            <td style={{ fontSize: 11, color: "var(--text-muted)" }}>{u.top_model || "—"}</td>
+                            <td>{u.activity.toLocaleString()}</td>
+                            {hasBilling && <td style={{ fontSize: 11 }}>{u.quota?.toLocaleString() ?? "—"}</td>}
+                            <td>
+                              <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                                <div style={{ flex: 1, height: 6, background: "var(--border)", borderRadius: 3, minWidth: 80 }}>
+                                  <div style={{
+                                    width: `${Math.min(quotaPct, 100)}%`, height: "100%",
+                                    background: barColor, borderRadius: 3,
+                                  }} />
+                                </div>
+                                <span style={{ fontSize: 11, whiteSpace: "nowrap" }}>{quotaPct.toFixed(1)}%</span>
+                              </div>
+                            </td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            </div>
+          </Section>
+        );
+      })()}
     </>
   );
 }
@@ -171,10 +331,43 @@ function ApiPremiumContent({ data }: { data: ApiPremiumSection }) {
 /* ---------- API Usage Activity fallback content ---------- */
 function ApiUsageContent({ data }: { data: ApiUsageSection }) {
   const { t } = useI18n();
+
+  const totalInteractions = data.users.reduce((s, u) => s + u.interactions, 0);
+  const totalCodeGen = data.users.reduce((s, u) => s + u.code_gen, 0);
+  const totalLocSuggested = data.users.reduce((s, u) => s + u.loc_suggested, 0);
+  const totalActivity = totalInteractions + totalCodeGen;
+  const avgAcceptRate = data.users.length > 0
+    ? (data.users.reduce((s, u) => s + u.acceptance_rate, 0) / data.users.length).toFixed(1)
+    : "0";
+
+  // Sort by total activity descending
+  const sortedUsers = [...data.users].sort(
+    (a, b) => (b.interactions + b.code_gen) - (a.interactions + a.code_gen)
+  );
+
+  // Top 15 for bar chart with % of total
+  const topUsers = sortedUsers.slice(0, 15).map((u) => ({
+    ...u,
+    total: u.interactions + u.code_gen,
+    pct: totalActivity > 0 ? ((u.interactions + u.code_gen) / totalActivity * 100) : 0,
+  }));
+
+  // IDE distribution aggregated across all users
+  const ideMap: Record<string, number> = {};
+  for (const u of data.users) {
+    for (const ide of u.ides) {
+      ideMap[ide.ide] = (ideMap[ide.ide] || 0) + ide.count;
+    }
+  }
+  const ideData = Object.entries(ideMap)
+    .map(([ide, count], i) => ({ ide, count, color: COLORS[i % COLORS.length] }))
+    .sort((a, b) => b.count - a.count);
+
   return (
     <>
-      <div className="dashboard-notice" style={{ marginBottom: 12, padding: "8px 14px", background: "var(--bg-secondary)", border: "1px solid var(--border)", borderRadius: 8, fontSize: 12, color: "var(--text-muted)" }}>
-        {t("csvDash.apiActivitySource")}
+      <div className="dashboard-notice" style={{ marginBottom: 12, padding: "8px 14px", background: "var(--bg-secondary)", border: "1px solid var(--border)", borderRadius: 8, fontSize: 12, color: "var(--text-muted)", display: "flex", alignItems: "center", gap: 8 }}>
+        <span>{t("csvDash.apiActivitySource")}{data.date_range?.start && ` · ${data.date_range.start} → ${data.date_range.end}`}</span>
+        <InfoIcon id="csv_section_apiUsageKpi" />
       </div>
       <div className="dashboard-kpi">
         <div className="stat-card">
@@ -182,26 +375,86 @@ function ApiUsageContent({ data }: { data: ApiUsageSection }) {
           <div className="stat-label">{t("csvDash.uniqueUsers")}</div>
         </div>
         <div className="stat-card">
-          <div className="stat-value">{data.users.reduce((s, u) => s + u.code_gen, 0).toLocaleString()}</div>
+          <div className="stat-value">{totalInteractions.toLocaleString()}</div>
+          <div className="stat-label">{t("dashboard.interactions")}</div>
+        </div>
+        <div className="stat-card">
+          <div className="stat-value">{totalCodeGen.toLocaleString()}</div>
           <div className="stat-label">{t("dashboard.codeGen")}</div>
         </div>
         <div className="stat-card">
-          <div className="stat-value">{data.users.reduce((s, u) => s + u.code_accept, 0).toLocaleString()}</div>
-          <div className="stat-label">{t("dashboard.codeAccept")}</div>
+          <div className="stat-value">{totalLocSuggested.toLocaleString()}</div>
+          <div className="stat-label">{t("dashboard.locSuggested")}</div>
         </div>
         <div className="stat-card">
-          <div className="stat-value">{data.users.reduce((s, u) => s + u.loc_suggested, 0).toLocaleString()}</div>
-          <div className="stat-label">{t("dashboard.locSuggested")}</div>
+          <div className="stat-value">{avgAcceptRate}%</div>
+          <div className="stat-label">{t("dashboard.acceptRate")}</div>
         </div>
       </div>
 
-      <Section sectionKey="apiUsageUsers" title={t("csvDash.userTable")}>
+      {/* Top users bar chart + IDE pie chart */}
+      <Section sectionKey="apiUsageCharts" title={t("monitor.userActivity")} defaultOpen={true} infoKey="csv_section_apiUsageCharts">
         <div className="dashboard-charts">
           <div className="chart-card chart-card-wide">
-            {data.users.length > 0 ? (
+            <ChartTitle text={t("monitor.topUsers")} infoKey="csv_section_apiUsageCharts" />
+            {topUsers.length > 0 ? (
+              <ResponsiveContainer width="100%" height={Math.max(220, topUsers.length * 44)}>
+                <BarChart data={topUsers} layout="vertical">
+                  <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" />
+                  <XAxis type="number" tick={{ fontSize: 11, fill: "var(--text-muted)" }} />
+                  <YAxis dataKey="user" type="category" width={150} tick={{ fontSize: 11, fill: "var(--text-muted)" }} />
+                  <Tooltip
+                    contentStyle={TOOLTIP_STYLE}
+                    formatter={(v: any, name?: string, props?: any) => {
+                      const val = Math.round(Number(v)).toLocaleString();
+                      const pct = props?.payload?.pct != null ? ` (${props.payload.pct.toFixed(1)}% total)` : "";
+                      return [`${val}${name === t("dashboard.codeGen") ? pct : ""}`, name];
+                    }}
+                  />
+                  <Bar dataKey="interactions" name={t("dashboard.interactions")} stackId="a" fill="#bc8cff" radius={[0, 0, 0, 0]} />
+                  <Bar dataKey="code_gen" name={t("dashboard.codeGen")} stackId="a" fill="#58a6ff" radius={[0, 4, 4, 0]} />
+                  <Legend wrapperStyle={{ fontSize: 12 }} />
+                </BarChart>
+              </ResponsiveContainer>
+            ) : <div className="chart-empty">{t("csvDash.noData")}</div>}
+          </div>
+
+          {ideData.length > 1 && (
+            <div className="chart-card">
+              <ChartTitle text="IDE Distribution" infoKey="csv_section_apiUsageCharts" />
+              <ResponsiveContainer width="100%" height={260}>
+                <PieChart>
+                  <Pie
+                    data={ideData}
+                    dataKey="count"
+                    nameKey="ide"
+                    cx="50%"
+                    cy="50%"
+                    outerRadius={95}
+                    innerRadius={48}
+                    paddingAngle={2}
+                    label={({ name, percent }) => `${name ?? ""} ${((percent ?? 0) * 100).toFixed(0)}%`}
+                    labelLine={false}
+                  >
+                    {ideData.map((entry) => (
+                      <Cell key={entry.ide} fill={entry.color} />
+                    ))}
+                  </Pie>
+                  <Tooltip contentStyle={TOOLTIP_STYLE} formatter={(v: any) => Number(v).toLocaleString()} />
+                </PieChart>
+              </ResponsiveContainer>
+            </div>
+          )}
+        </div>
+      </Section>
+
+      <Section sectionKey="apiUsageUsers" title={t("csvDash.userTable")} infoKey="csv_section_apiUsageUsers">
+        <div className="dashboard-charts">
+          <div className="chart-card chart-card-wide">
+            {sortedUsers.length > 0 ? (
               <>
                 <div style={{ display: "flex", justifyContent: "flex-end", marginBottom: 6 }}>
-                  <button className="btn btn-small" onClick={() => exportCSV("api-usage-users", data.users)}>⬇ CSV</button>
+                  <button className="btn btn-small" onClick={() => exportCSV("api-usage-users", sortedUsers)}>⬇ CSV</button>
                 </div>
                 <div className="dashboard-table-wrap">
                 <table className="dashboard-table">
@@ -212,6 +465,7 @@ function ApiUsageContent({ data }: { data: ApiUsageSection }) {
                       <th>{t("csvDash.org")}</th>
                       <th>{t("dashboard.interactions")}</th>
                       <th>{t("dashboard.codeGen")}</th>
+                      <th style={{ minWidth: 130 }}>% {t("monitor.total")}</th>
                       <th>{t("dashboard.codeAccept")}</th>
                       <th>{t("dashboard.locSuggested")}</th>
                       <th>{t("dashboard.daysActive")}</th>
@@ -220,29 +474,46 @@ function ApiUsageContent({ data }: { data: ApiUsageSection }) {
                     </tr>
                   </thead>
                   <tbody>
-                    {data.users.map((u, i) => (
-                      <tr key={u.user}>
-                        <td className="rank">{i + 1}</td>
-                        <td className="user-name">{u.user}</td>
-                        <td>{u.org}</td>
-                        <td>{u.interactions.toLocaleString()}</td>
-                        <td>{u.code_gen.toLocaleString()}</td>
-                        <td>{u.code_accept.toLocaleString()}</td>
-                        <td>{u.loc_suggested.toLocaleString()}</td>
-                        <td>{u.days_active}</td>
-                        <td>{u.acceptance_rate}%</td>
-                        <td className="model-tags">
-                          {u.ides.slice(0, 2).map((ide) => (
-                            <span key={ide.ide} className="dash-badge dash-badge-muted">
-                              {ide.ide}
-                            </span>
-                          ))}
-                        </td>
-                      </tr>
-                    ))}
+                    {sortedUsers.map((u, i) => {
+                      const userTotal = u.interactions + u.code_gen;
+                      const pct = totalActivity > 0 ? (userTotal / totalActivity * 100) : 0;
+                      return (
+                        <tr key={u.user}>
+                          <td className="rank">{i + 1}</td>
+                          <td className="user-name">{u.user}</td>
+                          <td>{u.org}</td>
+                          <td>{u.interactions.toLocaleString()}</td>
+                          <td>{u.code_gen.toLocaleString()}</td>
+                          <td>
+                            <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                              <div style={{
+                                flex: 1, height: 6, background: "var(--border)", borderRadius: 3, minWidth: 60,
+                              }}>
+                                <div style={{
+                                  width: `${Math.min(pct, 100)}%`, height: "100%",
+                                  background: "#58a6ff", borderRadius: 3,
+                                }} />
+                              </div>
+                              <span style={{ fontSize: 11, whiteSpace: "nowrap" }}>{pct.toFixed(1)}%</span>
+                            </div>
+                          </td>
+                          <td>{u.code_accept.toLocaleString()}</td>
+                          <td>{u.loc_suggested.toLocaleString()}</td>
+                          <td>{u.days_active}</td>
+                          <td>{u.acceptance_rate}%</td>
+                          <td className="model-tags">
+                            {u.ides.slice(0, 2).map((ide) => (
+                              <span key={ide.ide} className="dash-badge dash-badge-muted">
+                                {ide.ide}
+                              </span>
+                            ))}
+                          </td>
+                        </tr>
+                      );
+                    })}
                   </tbody>
                 </table>
-              </div>
+                </div>
               </>
             ) : <div className="chart-empty">{t("csvDash.noData")}</div>}
           </div>

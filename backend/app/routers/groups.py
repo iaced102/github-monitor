@@ -13,6 +13,7 @@ from pydantic import BaseModel
 
 from ..services import database as db_module
 from ..services.data_collector import data_collector
+from ..services.api_manager import api_manager
 
 router = APIRouter(prefix="/groups", tags=["groups"])
 
@@ -284,4 +285,58 @@ async def import_csv(request: Request, file: UploadFile = File(...)):
         "preview": [
             {"group": g, "count": len(us)} for g, us in by_group.items()
         ],
+    }
+
+
+# ---------------------------------------------------------------------------
+# Sync groups from GitHub Teams
+# ---------------------------------------------------------------------------
+
+@router.post("/sync-teams")
+async def sync_teams(request: Request):
+    """
+    Sync user groups from GitHub organization teams.
+
+    Delegates to DataCollector.sync_github_teams() — the same logic that runs
+    automatically during the scheduled cron sync. Groups are named '{org}/{team_name}'
+    and members are fully replaced on each sync (GitHub team membership is authoritative).
+
+    Requires super_admin role.
+    """
+    try:
+        _require_super_admin(request)
+    except PermissionError as e:
+        return {"error": str(e)}
+
+    orgs = api_manager.get_all_enterprises()
+    if not orgs:
+        return {"error": "No enterprises discovered. Add a PAT with enterprise scope and sync data first."}
+
+    summary = await data_collector.sync_github_teams()
+
+    synced_items = summary.get("synced", [])
+    errors = summary.get("errors", [])
+
+    # Parse preview from synced entries: "team/{org}/{slug} (N members)"
+    preview: list[dict] = []
+    total_members = 0
+    for item in synced_items:
+        try:
+            path_part, _, count_part = item.partition(" (")
+            member_count = int(count_part.rstrip(" members)"))
+            total_members += member_count
+            _, _, org_team = path_part.partition("team/")
+            org_part, _, team_part = org_team.partition("/")
+            preview.append({"org": org_part, "team": team_part, "members": member_count})
+        except Exception:
+            preview.append({"raw": item})
+
+    return {
+        "ok": True,
+        "enterprises_scanned": len(orgs),
+        "groups_created": len(synced_items),
+        "groups_updated": 0,
+        "members_synced": total_members,
+        "errors": errors,
+        "preview": preview,
     }

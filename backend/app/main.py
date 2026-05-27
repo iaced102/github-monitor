@@ -58,8 +58,6 @@ async def lifespan(app: FastAPI):
     # Wire up api_manager and data_collector to services that need them
     data_collector.set_api_manager(api_manager)
     copilot_engine.set_api_manager(api_manager)
-    ops_executor.set_api_manager(api_manager)
-    ops_executor.set_data_collector(data_collector)
 
     # Read settings
     settings = pat_manager.get_settings()

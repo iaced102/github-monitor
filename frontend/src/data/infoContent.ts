@@ -67,6 +67,26 @@ export const INFO: Record<string, InfoContent> = {
     ],
     tip: "Tính năng này tiết kiệm thời gian đáng kể cho reviewer và tác giả PR.",
   },
+  kpi_acceptance_rate: {
+    title: "Acceptance Rate (7 ngày)",
+    description: "Tỷ lệ phần trăm code suggestion của Copilot được developer chấp nhận (accept) trong 7 ngày gần nhất. Phản ánh mức độ hữu ích của Copilot với team.",
+    metrics: [
+      { name: "Công thức", desc: "Code Accepted ÷ Code Generated × 100", example: "850 accept / 1,400 gen = 60.7%" },
+      { name: "So sánh tuần", desc: "Delta (▲▼) so với 7 ngày trước đó, tính bằng percentage point", example: "▲ 33% = tăng 33 percentage points so với tuần trước" },
+      { name: "Nguồn dữ liệu", desc: "GitHub Usage Metrics API — trường code_acceptance_activity_count / code_generation_activity_count", example: "28 ngày rolling window" },
+    ],
+    tip: "Acceptance rate cao (> 30%) cho thấy Copilot đang gợi ý đúng context. Nếu thấp, kiểm tra xem team có tắt telemetry hoặc dùng Copilot chủ yếu để chat không.",
+  },
+  kpi_avg_dau: {
+    title: "Avg DAU (7 ngày)",
+    description: "Số người dùng hoạt động trung bình mỗi ngày (Daily Active Users) trong 7 ngày gần nhất. Đo mức độ engagement hàng ngày của team với Copilot.",
+    metrics: [
+      { name: "Công thức", desc: "Tổng DAU 7 ngày ÷ 7", example: "74 tổng DAU / 7 ngày = 10.6 avg DAU" },
+      { name: "DAU", desc: "Số user có ít nhất 1 interaction hoặc code generation trong ngày đó", example: "Thứ Hai: 12 users, Thứ Ba: 9 users, ..." },
+      { name: "So sánh tuần", desc: "Delta (▲▼) là % thay đổi avg DAU so với 7 ngày trước", example: "▼ 6% = avg DAU giảm 6% so với tuần trước" },
+    ],
+    tip: "Avg DAU thấp so với tổng số license (< 50%) cho thấy nhiều user có license nhưng không dùng hàng ngày. Có thể cần training hoặc thu hồi license.",
+  },
 
   // ─── Sections & Charts: Metrics Tab ─────────────────────────────────────
   section_activeUserTrends: {
@@ -440,7 +460,89 @@ export const INFO: Record<string, InfoContent> = {
     ],
   },
 
-  // ─── Usage Monitor ───────────────────────────────────────────────────────
+  // ─── CsvDashboard: API Premium Tab (new sections) ────────────────────────
+  csv_chart_apiPremiumCostByModel: {
+    title: "Phân bổ Chi phí theo Model (Donut)",
+    description: "Biểu đồ tròn thể hiện phân bổ grossAmount ($) theo từng model AI trong tháng. grossAmount = gross_qty × $0.04/request.",
+    metrics: [
+      { name: "grossAmount ($)", desc: "Chi phí gross của model = số premium requests đã nhân hệ số × $0.04", example: "Claude Opus 4.6: $76.80" },
+    ],
+    tip: "Gross Amount ≠ số tiền thực trả. Phần nằm trong quota sẽ được discount 100% (netAmount = 0). Chi phí thực = phần vượt quota × $0.04.",
+  },
+  csv_section_apiPremiumKpi: {
+    title: "KPI tổng hợp Premium Requests (Billing API)",
+    description: "Dữ liệu lấy trực tiếp từ GitHub Billing API cho tháng hiện tại.",
+    metrics: [
+      { name: "Total Requests (Gross)", desc: "Tổng premium requests đã dùng — đã tính hệ số model (multiplier). Ví dụ: 1 lần chat Claude Opus = nhiều premium requests.", example: "6,285 requests" },
+      { name: "Net Requests", desc: "Số requests phải trả tiền thêm (vượt quá quota hàng tháng). = 0 nếu tất cả nằm trong quota.", example: "0 (trong quota)" },
+      { name: "Total Cost", desc: "Chi phí phần vượt quota × $0.04/request. = $0 nếu net = 0.", example: "$0.00 (chưa vượt quota)" },
+      { name: "Unique Models", desc: "Số model AI khác nhau đã được dùng trong tháng.", example: "22 models" },
+    ],
+    tip: "Gross = tổng tiêu thụ (kể cả phần miễn phí trong quota). Net = phần vượt quota tính tiền. Theo dõi Gross để biết xu hướng trước khi vượt quota.",
+  },
+  csv_section_apiPremiumModels: {
+    title: "Phân bổ Premium Requests theo Model",
+    description: "Mỗi model AI có hệ số nhân (multiplier) khác nhau. grossQuantity đã nhân hệ số rồi — đây là số 'premium requests' thực sự tiêu thụ, không phải số lần gọi thực tế.",
+    metrics: [
+      { name: "Gross Qty (Tổng requests)", desc: "Số premium requests đã nhân hệ số. Ví dụ: 1 lần chat Claude Opus 4.6 ≈ 64 premium requests.", example: "Claude Opus 4.6: 1,920 requests (≈ 30 lần chat × 64x)" },
+      { name: "Gross Amount ($)", desc: "Chi phí gross của model đó = gross_qty × $0.04/request.", example: "$76.80" },
+      { name: "Hệ số model (multiplier)", desc: "GPT-4.1/GPT-5 mini = 0× (miễn phí). Claude Sonnet ≈ 2×. Claude Opus ≈ 40–64×. GPT-5.3-Codex ≈ 2×.", example: "Claude Opus 4.6: ~64× · Claude Sonnet 4.6: ~2×" },
+    ],
+    tip: "Tổng Chi phí phân bổ Cost by Model cho thấy model nào tốn quota nhiều nhất. Chú ý Claude Opus — mỗi chat tốn rất nhiều premium requests.",
+  },
+  csv_section_apiPremiumUsers: {
+    title: "Premium Requests theo Người dùng (Billing API)",
+    description: "Dữ liệu lấy từ GitHub Billing API endpoint: GET /enterprises/{enterprise}/settings/billing/premium_request/usage?user={username}. Số thực tế, đã tính hệ số model.",
+    metrics: [
+      { name: "Requests (Gross)", desc: "Tổng premium requests user này đã dùng trong tháng — đã nhân hệ số model.", example: "thinhvp: 982 requests" },
+      { name: "Top Model", desc: "Model AI user đó dùng nhiều nhất (theo số requests, không phải số lần chat).", example: "Claude Opus 4.6" },
+      { name: "Quota", desc: "Giới hạn miễn phí hàng tháng theo plan: Enterprise = 1,000 · Business = 300 requests.", example: "1,000 (Enterprise)" },
+      { name: "% Quota = Requests / Quota × 100", desc: "Tỷ lệ quota đã sử dụng. 🟡 ≥70% · 🔴 ≥90% = sắp cạn quota.", example: "thinhvp: 982/1000 = 98.2% 🔴" },
+      { name: "% Total (cột cuối)", desc: "Tỷ lệ của user này trong tổng requests toàn tổ chức.", example: "thinhvp: 982/6285 = 15.6%" },
+    ],
+    tip: "User ≥ 90% quota và còn nhiều ngày trong tháng → có thể vượt quota và phát sinh chi phí. Xem xét policy giới hạn model đắt tiền (Claude Opus).",
+  },
+
+  // ─── CsvDashboard: API Usage Tab (new sections) ──────────────────────────
+  csv_section_apiUsageKpi: {
+    title: "KPI tổng hợp Usage Metrics (28 ngày)",
+    description: "Dữ liệu từ GitHub Copilot Usage Metrics API — báo cáo 28 ngày gần nhất. Đây là activity metrics, không phải billing.",
+    metrics: [
+      { name: "Total Users", desc: "Số user có ít nhất 1 hoạt động trong 28 ngày.", example: "32 users" },
+      { name: "Interactions", desc: "Tổng số lần user chủ động gửi prompt cho Copilot (chat, ask, explain...).", example: "4,250 interactions" },
+      { name: "Code Gen", desc: "Tổng số lần Copilot sinh code suggestion (inline completions).", example: "18,400 code gen" },
+      { name: "LOC Suggested", desc: "Tổng dòng code được gợi ý. Chú ý: có thể tính nhiều lần nếu user hover/trigger lại.", example: "52,000 LOC" },
+      { name: "Accept Rate (%)", desc: "Trung bình tỷ lệ chấp nhận code suggestion = code_accept / code_gen × 100, tính trung bình theo user.", example: "23.5%" },
+    ],
+    tip: "Accept Rate thấp (< 15%) có thể do suggestion không phù hợp với codebase, hoặc user chỉ dùng Chat/Ask thay vì inline completions.",
+  },
+  csv_section_apiUsageCharts: {
+    title: "Biểu đồ hoạt động người dùng (28 ngày)",
+    description: "Top 15 users theo tổng hoạt động (interactions + code_gen) và phân bổ IDE trong 28 ngày gần nhất.",
+    metrics: [
+      { name: "Interactions (tím)", desc: "Số lần user gửi prompt chủ động = user_initiated_interaction_count.", example: "289" },
+      { name: "Code Gen (xanh)", desc: "Số lần Copilot sinh code suggestion = code_generation_activity_count.", example: "1,350" },
+      { name: "IDE Distribution", desc: "Phân bổ code_generation_activity_count theo IDE (VSCode, JetBrains, v.v.).", example: "vscode: 75% · jetbrains: 25%" },
+    ],
+    tip: "Tooltip trên bar chart hiện % tổng khi hover vào cột Code Gen.",
+  },
+  csv_section_apiUsageUsers: {
+    title: "Chi tiết người dùng (Usage Metrics API — 28 ngày)",
+    description: "Dữ liệu từ GitHub Copilot Usage Metrics API cho từng user trong 28 ngày gần nhất. Đây là activity metrics, không liên quan đến billing hay premium requests.",
+    metrics: [
+      { name: "Interactions", desc: "Số lần user chủ động gửi prompt = user_initiated_interaction_count. Bao gồm Chat, Ask, Explain, v.v.", example: "289" },
+      { name: "Code Gen", desc: "Số lần Copilot sinh code suggestion cho user đó = code_generation_activity_count.", example: "1,350" },
+      { name: "% Tổng = (Interactions + Code Gen) / Tổng toàn team × 100", desc: "Tỷ lệ đóng góp hoạt động của user so với toàn bộ team.", example: "289+1350 = 1639 / 11,800 tổng = 13.9%" },
+      { name: "Code Accept", desc: "Số lần user chấp nhận code suggestion = code_acceptance_activity_count.", example: "297" },
+      { name: "LOC Suggested", desc: "Số dòng code được gợi ý cho user đó.", example: "1,369" },
+      { name: "LOC Added", desc: "Số dòng code user thực sự accept vào code (loc_accepted).", example: "34,478" },
+      { name: "Days Active", desc: "Số ngày trong 28 ngày user có ít nhất 1 hoạt động.", example: "25/28 ngày" },
+      { name: "Accept Rate %", desc: "= code_accept / code_gen × 100. Tỷ lệ suggestion được chấp nhận.", example: "297/1350 = 22.0%" },
+      { name: "IDEs", desc: "IDE user đó dùng kèm số lượng code generation.", example: "vscode: 1,209" },
+    ],
+    tip: "LOC Added >> LOC Suggested là bình thường — user có thể chỉ accept 1 phần suggestion, nhưng GitHub tính toàn bộ LOC của file được edit.",
+  },
+
   mon_modelOverview: {
     title: "Tổng quan sử dụng Model AI",
     description: "Thống kê tổng hợp mức độ sử dụng từng model AI (Claude, GPT, Gemini, v.v.) trong toàn bộ tổ chức.",
@@ -542,61 +644,36 @@ export const INFO: Record<string, InfoContent> = {
   kpi_overview_total_seats: {
     title: "Tổng ghế — Số người dùng được gán license",
     description: "Số người dùng duy nhất (unique users) đang được gán license GitHub Copilot. Mỗi người chỉ được đếm 1 lần dù có thể có nhiều bản ghi seat (ví dụ khi đang chuyển plan Business → Enterprise).",
-    metrics: [
-      { name: "Unique Users", desc: "Sau khi loại bỏ trùng lặp theo username", example: "41 users (từ 51 bản ghi seat)" },
-      { name: "Business", desc: "Users đang dùng plan Copilot Business ($19/user/tháng)", example: "28 users Business" },
-      { name: "Enterprise", desc: "Users đang dùng plan Copilot Enterprise ($39/user/tháng)", example: "13 users Enterprise" },
-      { name: "Chờ hủy seat", desc: "Users có ít nhất 1 seat đang trong trạng thái pending cancellation (thường khi nâng cấp hoặc thu hồi license)", example: "31 users có seat chờ hủy" },
-    ],
-    tip: "Khi user được nâng cấp Business → Enterprise, GitHub API tạm thời trả về 2 bản ghi seat cho cùng 1 user. Con số này đã được loại bỏ trùng lặp để phản ánh đúng số người dùng thực tế.",
+    tip: "Khi user được nâng cấp Business → Enterprise, GitHub API tạm thời trả về 2 bản ghi seat cho cùng 1 user: 1 seat Enterprise mới (active) và 1 seat Business cũ với pending_cancellation_date (sẽ tự hủy cuối chu kỳ billing). Con số tổng ghế đã được loại bỏ trùng lặp, mỗi user chỉ đếm 1 lần.",
   },
   kpi_overview_active_seats: {
     title: "Hoạt động — Số user được gán license có phát sinh sử dụng",
-    description: "Số người dùng được gán license GitHub Copilot có phát sinh sử dụng trong 30 ngày gần nhất, theo dữ liệu last_activity_at từ GitHub Seats API.",
-    metrics: [
-      { name: "Điều kiện active", desc: "last_activity_at < 30 ngày tính từ thời điểm hiện tại", example: "Dùng Copilot lần cuối 2026-05-20 → active ✅" },
-      { name: "Nguồn dữ liệu", desc: "Trường last_activity_at trong GitHub Seats API (ghi nhận khi user dùng Copilot bất kỳ tính năng nào)", example: "36 / 41 users active trong 30 ngày" },
-      { name: "Khác với Cost Centers", desc: "Cost Centers dùng usage report (interactions + code_gen > 0 trong 28 ngày) → có thể cho con số khác", example: "Sidebar: 36 active · Cost Centers: 32 active" },
-    ],
-    tip: "User được tính là active khi GitHub ghi nhận last_activity_at trong 30 ngày, bao gồm cả code completion, chat, và các tính năng Copilot khác.",
+    description: "Số người dùng được gán license GitHub Copilot có phát sinh sử dụng trong 30 ngày gần nhất, theo dữ liệu last_activity_at từ GitHub Seats API. User được tính là active khi GitHub ghi nhận last_activity_at trong 30 ngày, bao gồm code completion, chat, và các tính năng Copilot khác.",
+    tip: "Lưu ý: Cost Centers dùng usage report (interactions + code_gen > 0 trong 28 ngày) nên có thể cho con số khác với sidebar.",
   },
   kpi_overview_inactive_seats: {
     title: "Không hoạt động — Users có license nhưng không dùng",
-    description: "Số người dùng đang được gán license GitHub Copilot nhưng không có phát sinh sử dụng trong 30 ngày gần nhất.",
-    metrics: [
-      { name: "Công thức", desc: "Tổng ghế (unique users) − Hoạt động", example: "41 − 36 = 5 inactive" },
-      { name: "Điều kiện inactive", desc: "last_activity_at > 30 ngày hoặc chưa bao giờ dùng", example: "Chưa từng dùng Copilot → inactive ❌" },
-    ],
+    description: "Số người dùng đang được gán license GitHub Copilot nhưng không có phát sinh sử dụng trong 30 ngày gần nhất. Công thức: Tổng ghế − Hoạt động. Điều kiện inactive: last_activity_at > 30 ngày hoặc chưa bao giờ dùng.",
     tip: "Thu hồi license của users inactive > 30 ngày để tiết kiệm chi phí. Dùng tab Lifecycle để xem danh sách chi tiết.",
   },
   kpi_overview_utilization: {
     title: "Tỷ lệ sử dụng (Utilization Rate)",
-    description: "Phần trăm số người dùng có license đang thực sự sử dụng Copilot trong 30 ngày gần nhất.",
+    description: "Phần trăm số người dùng có license đang thực sự sử dụng Copilot trong 30 ngày gần nhất. Công thức: (Hoạt động / Tổng ghế) × 100%.",
     metrics: [
-      { name: "Công thức", desc: "(Hoạt động / Tổng ghế) × 100%", example: "36 / 41 = 87.8%" },
-      { name: "≥ 80%", desc: "Tốt — utilization hiệu quả", example: "87% ✅" },
-      { name: "50–79%", desc: "Trung bình — có thể tối ưu thêm", example: "65% ⚠️" },
-      { name: "< 50%", desc: "Kém — nên thu hồi seats không dùng", example: "35% ❌" },
+      { name: "≥ 80%", desc: "Tốt — utilization hiệu quả", example: "✅" },
+      { name: "50–79%", desc: "Trung bình — có thể tối ưu thêm", example: "⚠️" },
+      { name: "< 50%", desc: "Kém — nên thu hồi seats không dùng", example: "❌" },
     ],
     tip: "Nếu utilization < 70%, xem danh sách inactive users ở tab Lifecycle để thu hồi license và tiết kiệm chi phí.",
   },
   kpi_overview_monthly_cost: {
     title: "Chi phí tháng (Monthly Cost)",
-    description: "Tổng chi phí license GitHub Copilot ước tính hàng tháng, tính trên số seats được gán theo đơn giá từng plan.",
-    metrics: [
-      { name: "Copilot Business", desc: "$19/user/tháng", example: "28 users × $19 = $532/tháng" },
-      { name: "Copilot Enterprise", desc: "$39/user/tháng", example: "13 users × $39 = $507/tháng" },
-      { name: "Lưu ý", desc: "Chi phí thực tế có thể khác nếu có discount hoặc enterprise billing riêng", example: "Tổng ≈ $1,039/tháng" },
-    ],
+    description: "Tổng chi phí license GitHub Copilot ước tính hàng tháng, tính trên số seats được gán theo đơn giá từng plan: Business $19/user/tháng, Enterprise $39/user/tháng. Chi phí thực tế có thể khác nếu có discount hoặc enterprise billing riêng.",
     tip: "Giảm inactive seats để giảm chi phí ngay lập tức. Mỗi inactive user Business = $19/tháng lãng phí.",
   },
   kpi_overview_monthly_waste: {
     title: "Lãng phí tháng (Monthly Waste)",
-    description: "Chi phí bị lãng phí cho các users có license nhưng không sử dụng Copilot trong 30 ngày gần nhất.",
-    metrics: [
-      { name: "Công thức", desc: "Inactive Users × Đơn giá/user", example: "5 inactive × $19 = $95/tháng lãng phí" },
-      { name: "Tiết kiệm tiềm năng", desc: "Thu hồi tất cả inactive seats sẽ tiết kiệm được số này mỗi tháng", example: "$95/tháng × 12 = $1,140/năm" },
-    ],
+    description: "Chi phí bị lãng phí cho các users có license nhưng không sử dụng Copilot trong 30 ngày gần nhất. Công thức: Inactive Users × Đơn giá/user. Thu hồi tất cả inactive seats sẽ tiết kiệm được số này mỗi tháng.",
     tip: "Thu hồi license của users không dùng > 30 ngày. Dùng tính năng Lifecycle hoặc AI Chat để tạo recommendation tự động.",
   },
 

@@ -66,6 +66,22 @@ class FetchPremiumRequestUsageParams(BaseModel):
     month: int = Field(default=0, description="Month (1-12). Leave 0 for current month.")
 
 
+class FetchUserPremiumRequestUsageParams(BaseModel):
+    org: str = Field(description="Organization name (required).")
+    user: str = Field(description="GitHub username to fetch premium request usage for (required).")
+    year: int = Field(default=0, description="Year (e.g. 2026). Leave 0 for current year.")
+    month: int = Field(default=0, description="Month (1-12). Leave 0 for current month.")
+
+
+class FetchEnterprisePremiumRequestUsageParams(BaseModel):
+    enterprise: str = Field(description="Enterprise slug (required), e.g. 'hpt'.")
+    organization: str = Field(default="", description="Org login to filter (e.g. 'hpt-ho'). Leave empty for all orgs in enterprise.")
+    user: str = Field(default="", description="GitHub username to filter. Leave empty for all users (enterprise-wide totals).")
+    year: int = Field(default=0, description="Year (e.g. 2026). Leave 0 for current year.")
+    month: int = Field(default=0, description="Month (1-12). Leave 0 for current month.")
+    cost_center_id: str = Field(default="", description="Cost center ID to filter. Use 'none' for usage not in any cost center. Leave empty for all.")
+
+
 class GetFeatureAdoptionParams(BaseModel):
     org: str = Field(default="", description="Organization name. Leave empty for all orgs.")
     user: str = Field(default="", description="Username to filter. Leave empty for all users.")
@@ -146,6 +162,12 @@ class GetDormantUsersParams(BaseModel):
 
 class GetNeverUsedSeatsParams(BaseModel):
     org: str = Field(default="", description="Organization name. Leave empty for all orgs.")
+
+
+class GetUserCopilotQuotaSummaryParams(BaseModel):
+    org: str = Field(default="", description="Organization name. Leave empty for all orgs.")
+    user: str = Field(default="", description="Username to filter. Leave empty for all users.")
+    top_n: int = Field(default=50, description="Max number of users to return, sorted by AIC consumed desc.")
 
 
 # ---------------------------------------------------------------------------
@@ -1047,11 +1069,13 @@ def create_usage_tools(
 
     @define_tool(
         description=(
-            "Get GitHub AI Credits (AIC) consumption from usage report data. "
-            "New billing model effective June 1, 2026: 1 AIC = $0.01 USD. "
-            "Aggregates aic_quantity (credits consumed) and aic_gross_amount (USD cost) "
-            "per user from the 28-day usage reports. Shows top consumers and org totals. "
-            "Use this instead of premium request usage analysis for billing after June 1, 2026."
+            "Get GitHub AI Credits (AIC) consumption from usage metrics report data. "
+            "New billing model effective June 1, 2026: 1 AIC = $0.01 USD, token-based, pooled at org level. "
+            "Reads aic_quantity (credits consumed) and aic_gross_amount (USD cost) per user from the usage_users report. "
+            "These fields contain preview/estimated data before June 1, 2026 and real billing data from June 1 onwards. "
+            "Code completions are NOT billed in AIC — they remain unlimited. "
+            "Shows top AIC consumers and org totals. "
+            "Use this instead of premium request usage analysis for billing from June 1, 2026."
         )
     )
     def get_aic_usage(params: GetAicUsageParams) -> str:
@@ -1152,10 +1176,12 @@ def create_usage_tools(
         description=(
             "Calculate GitHub AI Credits (AIC) pool status for an org: total pool, "
             "credits consumed, credits remaining, and utilization percentage. "
-            "Pool = seats × included credits/user/month. During promo period "
-            "(June 1 – Sep 1, 2026): Business 3,000/user, Enterprise 7,000/user. "
+            "Pool = seats × included credits/user/month (pooled at billing entity level). "
+            "During promo period (June 1 – Sep 1, 2026): Business 3,000/user, Enterprise 7,000/user. "
             "Standard rates: Business 1,900/user, Enterprise 3,900/user. "
-            "1 AIC = $0.01 USD. Use this to predict overage risk before month-end."
+            "1 AIC = $0.01 USD. Use this to predict overage risk before month-end. "
+            "aic_quantity / aic_gross_amount fields in usage report contain estimated data before June 1, 2026 "
+            "and real billing data from June 1 onwards. Zeros before June 1 are expected."
         )
     )
     def get_aic_pool_status(params: GetAicPoolStatusParams) -> str:
@@ -1250,6 +1276,216 @@ def create_usage_tools(
             },
         }, default=str)
 
+    @define_tool(
+        description=(
+            "Get a combined per-user Copilot quota summary showing both AI completions (code generations) "
+            "and Premium Request consumption alongside their quotas. "
+            "Per-user data sources: "
+            "(1) AI completions: `code_generation_activity_count` per user from the usage metrics report "
+            "(official GitHub API field, available from Oct 10, 2025 onward). "
+            "(2) AIC (GitHub AI Credits, new billing from June 2026): `aic_quantity` field from usage report "
+            "(may be an undocumented/preview field — not in official schema example). "
+            "(3) Premium Requests (old model, before June 2026): consumed count from CSV export "
+            "(GitHub REST API supports per-user filtering via `user` param, but only for enterprise owners "
+            "and billing managers — use fetch_user_premium_request_usage for live data). "
+            "Also shows last activity date from seat data. "
+            "Use this for: 'how many completions / premium requests has each user used vs their quota?'"
+        )
+    )
+    def get_user_copilot_quota_summary(params: GetUserCopilotQuotaSummaryParams) -> str:
+        import csv as csv_mod
+        from collections import defaultdict
+        from datetime import datetime, timezone as tz
+        from ..config import (
+            PREMIUM_REQUEST_QUOTA_PER_USER,
+            AIC_INCLUDED_PER_USER, AIC_PROMO_PER_USER,
+            AIC_PROMO_START, AIC_PROMO_END, AIC_VALUE_USD,
+        )
+
+        now = datetime.now(tz.utc)
+        in_promo = AIC_PROMO_START <= now.strftime("%Y-%m-%d") < AIC_PROMO_END
+
+        # ── 1. Load usage data from usage_users cached data ──────────────────
+        if params.org:
+            raw_usage = collector.load_latest("usage_users", params.org)
+            all_usage = {params.org: raw_usage} if raw_usage else {}
+        else:
+            all_usage = collector.load_all_latest("usage_users") or {}
+
+        user_agg: dict[str, dict] = defaultdict(lambda: {
+            "code_generations": 0,   # official: code_generation_activity_count
+            "code_acceptances": 0,   # official: code_acceptance_activity_count
+            "loc_added": 0,          # official: loc_added_sum
+            "aic_quantity": 0.0,     # may be undocumented/preview field
+            "aic_gross_amount": 0.0, # may be undocumented/preview field
+            "org": "",
+        })
+        report_period: dict = {}
+
+        for org, data in all_usage.items():
+            records = data.get("records", data) if isinstance(data, dict) else data
+            if not isinstance(records, list):
+                continue
+            if not report_period and isinstance(data, dict):
+                report_period = {
+                    "start": data.get("report_start_day", ""),
+                    "end": data.get("report_end_day", ""),
+                }
+            for r in records:
+                login = r.get("user_login", "")
+                if not login:
+                    continue
+                if params.user and login != params.user:
+                    continue
+                u = user_agg[login]
+                u["code_generations"] += int(r.get("code_generation_activity_count") or 0)
+                u["code_acceptances"] += int(r.get("code_acceptance_activity_count") or 0)
+                u["loc_added"] += int(r.get("loc_added_sum") or 0)
+                u["aic_quantity"] += float(r.get("aic_quantity") or 0)
+                u["aic_gross_amount"] += float(r.get("aic_gross_amount") or 0)
+                if not u["org"]:
+                    u["org"] = org
+
+        # Alias for backwards compat
+        aic_agg = {login: {"aic_quantity": v["aic_quantity"], "aic_gross_amount": v["aic_gross_amount"], "org": v["org"]}
+                   for login, v in user_agg.items()}
+
+        # ── 2. Load premium request usage from CSV ────────────────────────────
+        csv_dirs = [collector.data_dir / "premium_usage_csv"]
+        if collector._fallback_dir:
+            csv_dirs.append(collector._fallback_dir / "premium_usage_csv")
+
+        pr_agg: dict[str, dict] = defaultdict(lambda: {
+            "pr_consumed": 0.0, "pr_quota": 0, "pr_cost": 0.0, "pr_org": "",
+        })
+        for csv_dir in csv_dirs:
+            if not csv_dir.exists():
+                continue
+            for f in sorted(csv_dir.glob("*.csv")):
+                with open(f, encoding="utf-8") as fh:
+                    for row in csv_mod.DictReader(fh):
+                        login = row.get("username", "")
+                        if not login:
+                            continue
+                        if params.user and login != params.user:
+                            continue
+                        if params.org and row.get("organization", "") != params.org:
+                            continue
+                        p = pr_agg[login]
+                        p["pr_consumed"] += float(row.get("quantity", 0) or 0)
+                        p["pr_cost"] += float(row.get("gross_amount", 0) or 0)
+                        if not p["pr_quota"]:
+                            try:
+                                p["pr_quota"] = int(row.get("total_monthly_quota", 0) or 0)
+                            except (ValueError, TypeError):
+                                pass
+                        if not p["pr_org"]:
+                            p["pr_org"] = row.get("organization", "")
+
+        # ── 3. Load seat data for plan_type and last_activity ─────────────────
+        seat_info: dict[str, dict] = {}
+        orgs_to_check = [params.org] if params.org else list(collector.load_all_latest("seats").keys())
+        for org in orgs_to_check:
+            seats_data = collector.load_latest("seats", org)
+            if not seats_data:
+                continue
+            billing = collector.load_latest("billing", org)
+            plan_type = (billing or {}).get("_detected_plan_type", "business")
+            for seat in seats_data.get("seats", []):
+                login = (seat.get("assignee") or {}).get("login", "")
+                if not login:
+                    continue
+                seat_info[login] = {
+                    "plan_type": seat.get("plan_type") or plan_type,
+                    "last_activity_at": seat.get("last_activity_at", ""),
+                    "last_activity_editor": seat.get("last_activity_editor", ""),
+                    "seat_org": org,
+                }
+
+        # ── 4. Merge into combined per-user view ──────────────────────────────
+        all_users = set(aic_agg) | set(pr_agg) | set(seat_info)
+        if params.user:
+            all_users = {u for u in all_users if u == params.user}
+
+        aic_rate_map = AIC_PROMO_PER_USER if in_promo else AIC_INCLUDED_PER_USER
+        grand_aic = sum(v["aic_quantity"] for v in aic_agg.values())
+
+        rows = []
+        for login in all_users:
+            aic = aic_agg.get(login, {})
+            pr = pr_agg.get(login, {})
+            seat = seat_info.get(login, {})
+
+            plan_type = seat.get("plan_type", "business")
+            org = user_agg.get(login, {}).get("org") or pr.get("pr_org") or seat.get("seat_org", "")
+
+            code_gens = user_agg.get(login, {}).get("code_generations", 0)
+            code_accs = user_agg.get(login, {}).get("code_acceptances", 0)
+            loc_added = user_agg.get(login, {}).get("loc_added", 0)
+            aic_consumed = round(aic_agg.get(login, {}).get("aic_quantity", 0.0), 2)
+            aic_cost = round(aic_agg.get(login, {}).get("aic_gross_amount", 0.0), 4)
+            aic_org_share_pct = round(aic_consumed / grand_aic * 100, 1) if grand_aic > 0 else 0.0
+            aic_quota = aic_rate_map.get(plan_type, aic_rate_map["business"])
+
+            pr_consumed = round(pr.get("pr_consumed", 0.0), 2)
+            pr_quota = pr.get("pr_quota") or PREMIUM_REQUEST_QUOTA_PER_USER.get(plan_type, 300)
+            pr_usage_pct = round(pr_consumed / pr_quota * 100, 1) if pr_quota > 0 else 0.0
+
+            rows.append({
+                "user": login,
+                "org": org,
+                "plan_type": plan_type,
+                "last_activity_at": seat.get("last_activity_at", ""),
+                "last_activity_editor": seat.get("last_activity_editor", ""),
+                # Official usage metrics (from usage_users report)
+                "ai_completions": {
+                    "code_generation_count": code_gens,   # official: code_generation_activity_count
+                    "code_acceptance_count": code_accs,   # official: code_acceptance_activity_count
+                    "acceptance_rate_pct": round(code_accs / code_gens * 100, 1) if code_gens > 0 else 0.0,
+                    "loc_added": loc_added,
+                },
+                # AIC (new billing model, from June 2026)
+                "aic": {
+                    "consumed": aic_consumed,
+                    "cost_usd": aic_cost,
+                    "monthly_quota_per_user": aic_quota,
+                    "org_pool_share_pct": aic_org_share_pct,
+                    "note": "aic_quantity field — may be undocumented/preview, not in official API schema example",
+                },
+                # Premium Requests (old billing model, before June 2026)
+                "premium_requests": {
+                    "consumed": pr_consumed,
+                    "quota": pr_quota,
+                    "usage_pct": pr_usage_pct,
+                    "cost_usd": round(pr.get("pr_cost", 0.0), 4),
+                    "data_source": "csv" if login in pr_agg else "no_data",
+                    "note": (
+                        "Per-user premium request data from CSV. "
+                        "Live API query available via fetch_user_premium_request_usage "
+                        "(requires enterprise owner or billing manager PAT)."
+                    ),
+                },
+            })
+
+        rows.sort(key=lambda r: -r["aic"]["consumed"])
+        rows = rows[:params.top_n]
+
+        return json.dumps({
+            "report_period": report_period,
+            "billing_model_note": (
+                "AIC is the new billing model (from June 1, 2026). "
+                "Premium Requests are the old model. "
+                "code_generation_activity_count = official per-user AI completions count (API). "
+                "aic_quantity = per-user AIC consumed (may be undocumented/preview field). "
+                "Premium Requests per-user: use fetch_user_premium_request_usage "
+                "(enterprise owner/billing manager) or upload CSV for org owners."
+            ),
+            "promotional_period_active": in_promo,
+            "grand_total_aic_consumed": round(grand_aic, 2),
+            "users": rows,
+            "total_users": len(rows),
+        }, default=str)
+
     tools = [
         get_usage_report, get_users_usage_report, get_metrics_detail,
         get_premium_request_usage, get_user_premium_usage,
@@ -1258,6 +1494,7 @@ def create_usage_tools(
         get_cli_token_usage, get_usage_trends, get_user_activity_timeline,
         get_dormant_users, get_never_used_seats,
         get_aic_usage, get_aic_pool_status,
+        get_user_copilot_quota_summary,
     ]
 
     # --- Live fetch tools (require api_manager) ---
@@ -1327,11 +1564,18 @@ def create_usage_tools(
 
         @define_tool(
             description=(
-                "Fetch LIVE Copilot premium request usage directly from GitHub API. "
-                "Shows per-model breakdown of premium request consumption including "
-                "model names (GPT-5.2, Claude Opus 4.6, etc.), request counts, "
-                "pricing ($0.04/request), gross/discount/net amounts. "
-                "Optionally specify year and month to query historical data (up to 24 months)."
+                "Fetch LIVE org-level Copilot premium request / GitHub AI Credits usage directly from GitHub API. "
+                "API: GET /organizations/{org}/settings/billing/premium_request/usage. "
+                "NOTE: Use the actual org login (e.g. 'hpt-ho'), NOT the enterprise slug (e.g. 'hpt'). "
+                "IMPORTANT: Enterprise owners who are NOT members of the org should use "
+                "fetch_enterprise_premium_request_usage instead — org-level endpoints require org membership. "
+                "This endpoint covers BOTH billing models: "
+                "  - Before June 1, 2026: premium request consumption (PRUs, $0.04/request overage). "
+                "  - From June 1, 2026: GitHub AI Credits (AIC) consumption (token-based, 1 AIC = $0.01). "
+                "GitHub did NOT create a new endpoint for AIC — the same endpoint is used for monitoring. "
+                "Returns per-model breakdown: model names, request/credit counts, pricing, gross/discount/net amounts. "
+                "Optionally specify year and month to query historical data (up to 24 months). "
+                "Required PAT: 'admin:org' scope AND SSO-authorized for the org (if SAML SSO is enforced)."
             )
         )
         def fetch_premium_request_usage(params: FetchPremiumRequestUsageParams) -> str:
@@ -1348,14 +1592,74 @@ def create_usage_tools(
                 )
             )
 
-            if not result:
-                return json.dumps({"error": f"No premium request data for org '{params.org}'.", "hint": "Ensure the PAT has 'Administration' org permission (read)."})
+            if not result or result.get("_error"):
+                err = result or {}
+                return json.dumps({
+                    "error": f"Cannot fetch premium request data for org '{params.org}'.",
+                    "status_code": err.get("status_code"),
+                    "github_message": err.get("message", ""),
+                    "required_scopes": err.get("required_scopes", "admin:org"),
+                    "hint": err.get("hint", (
+                        "Ensure the PAT has 'admin:org' scope AND is SSO-authorized for the org "
+                        "(GitHub Settings > Personal access tokens > Configure SSO). "
+                        "Also confirm the org has the Enhanced Billing Platform enabled."
+                    )),
+                })
 
             # Cache the result
             collector._save_json("premium_requests", params.org, result)
             return json.dumps(result, default=str)
 
         tools.extend([fetch_org_usage_report, fetch_org_users_usage_report, fetch_premium_request_usage])
+
+        @define_tool(
+            description=(
+                "Fetch LIVE per-user Copilot premium request / GitHub AI Credits usage directly from GitHub API. "
+                "API: GET /organizations/{org}/settings/billing/premium_request/usage?user={username}. "
+                "Works for BOTH billing models (same endpoint): "
+                "  - Before June 1, 2026: per-user premium request consumption. "
+                "  - From June 1, 2026: per-user GitHub AI Credits (AIC) consumption. "
+                "Returns per-model breakdown for the specified user: "
+                "model names, request/credit counts, pricing, gross/discount/net amounts. "
+                "NOTE: The `user` filter requires the PAT to belong to an enterprise owner or billing manager. "
+                "Org owners cannot filter by user via API — use get_user_premium_usage (CSV) instead. "
+                "Optionally specify year and month to query historical data (up to 24 months)."
+            )
+        )
+        def fetch_user_premium_request_usage(params: FetchUserPremiumRequestUsageParams) -> str:
+            api = api_manager.get_api_for_org(params.org)
+            if not api:
+                return json.dumps({"error": f"No API client for org '{params.org}'."})
+
+            loop = asyncio.get_event_loop()
+            result = loop.run_until_complete(
+                api.get_premium_request_usage(
+                    params.org,
+                    year=params.year if params.year else None,
+                    month=params.month if params.month else None,
+                    user=params.user,
+                )
+            )
+
+            if not result or result.get("_error"):
+                err = result or {}
+                return json.dumps({
+                    "error": f"Cannot fetch per-user premium request data for user '{params.user}' in org '{params.org}'.",
+                    "status_code": err.get("status_code"),
+                    "github_message": err.get("message", ""),
+                    "required_scopes": err.get("required_scopes", "admin:org"),
+                    "hint": err.get("hint", (
+                        "Requirements: (1) PAT must have 'admin:org' scope, "
+                        "(2) PAT must be SSO-authorized for this org (GitHub Settings > PAT > Configure SSO), "
+                        "(3) org must have Enhanced Billing Platform enabled, "
+                        "(4) user filter requires enterprise owner or billing manager role. "
+                        "Alternative: use fetch_enterprise_premium_request_usage with enterprise slug instead."
+                    )),
+                })
+
+            return json.dumps({**result, "_user_filter": params.user}, default=str)
+
+        tools.append(fetch_user_premium_request_usage)
 
         # --- Enterprise-level live fetch tools ---
 
@@ -1426,5 +1730,82 @@ def create_usage_tools(
             return json.dumps(result, default=str)
 
         tools.extend([fetch_enterprise_usage_report, fetch_enterprise_users_usage_report])
+
+        @define_tool(
+            description=(
+                "Fetch LIVE enterprise-level Copilot premium request / GitHub AI Credits (AIC) usage directly from GitHub API. "
+                "API: GET /enterprises/{enterprise}/settings/billing/premium_request/usage. "
+                "IMPORTANT: Only works with CLASSIC PATs (NOT fine-grained PATs). "
+                "This is the RECOMMENDED approach for enterprise owners/billing managers. "
+                "Supports powerful filters in a single call: "
+                "  - Leave all filters empty → enterprise-wide totals aggregated by model. "
+                "  - organization='hpt-ho' → usage for a specific org only. "
+                "  - user='username' → usage for a specific user across all orgs. "
+                "  - organization + user → usage for a specific user within a specific org. "
+                "  - cost_center_id → filter by cost center (use 'none' for uncategorized usage). "
+                "Covers BOTH billing models: premium requests (before June 1, 2026) and AIC (from June 1, 2026). "
+                "REQUIRED classic PAT scope: 'admin:enterprise' OR 'manage_billing:enterprise'. "
+                "Current 'admin:org' scope is NOT sufficient. "
+                "Note: 'manage_billing:enterprise' is a separate scope from 'manage_billing:copilot' — they are different."
+            )
+        )
+        def fetch_enterprise_premium_request_usage(params: FetchEnterprisePremiumRequestUsageParams) -> str:
+            api = api_manager.get_api_for_enterprise(params.enterprise)
+            if not api:
+                return json.dumps({"error": f"No API client for enterprise '{params.enterprise}'."})
+
+            loop = asyncio.get_event_loop()
+            result = loop.run_until_complete(
+                api.get_enterprise_premium_request_usage(
+                    params.enterprise,
+                    year=params.year if params.year else None,
+                    month=params.month if params.month else None,
+                    organization=params.organization if params.organization else None,
+                    user=params.user if params.user else None,
+                    cost_center_id=params.cost_center_id if params.cost_center_id else None,
+                )
+            )
+
+            if not result or result.get("_error"):
+                err = result or {}
+                filters = []
+                if params.organization:
+                    filters.append(f"org='{params.organization}'")
+                if params.user:
+                    filters.append(f"user='{params.user}'")
+                return json.dumps({
+                    "error": (
+                        f"Cannot fetch enterprise premium request/AIC usage for '{params.enterprise}'"
+                        + (f" ({', '.join(filters)})" if filters else "")
+                        + "."
+                    ),
+                    "status_code": err.get("status_code"),
+                    "github_message": err.get("message", ""),
+                    "required_scopes": err.get("required_scopes", "admin:enterprise OR manage_billing:enterprise"),
+                    "hint": err.get("hint", (
+                        "The classic PAT must have 'admin:enterprise' OR 'manage_billing:enterprise' scope. "
+                        "Note: 'manage_billing:copilot' is a DIFFERENT scope — it does NOT grant billing data access. "
+                        "'admin:org' is also NOT sufficient for enterprise-level billing endpoints. "
+                        "To fix: edit the PAT at github.com/settings/tokens and add 'manage_billing:enterprise' scope."
+                    )),
+                    "action_required": (
+                        "Update the PAT in .env or via Settings > API Tokens to include "
+                        "'manage_billing:enterprise' or 'admin:enterprise' scope."
+                    ),
+                })
+
+            return json.dumps(
+                {
+                    **result,
+                    "_filters": {
+                        "enterprise": params.enterprise,
+                        "organization": params.organization or None,
+                        "user": params.user or None,
+                    },
+                },
+                default=str,
+            )
+
+        tools.append(fetch_enterprise_premium_request_usage)
 
     return tools

@@ -60,20 +60,25 @@ Available data dimensions:
 - Model Usage: which AI models are used for which features (completions, chat, agent)
 - Language Adoption: which programming languages get the most/least Copilot engagement
 
-Copilot Premium Requests quota (included free per user per month):
+Copilot Premium Requests (OLD billing model — before June 1, 2026):
 - Copilot Business: 300 premium requests/user/month
 - Copilot Enterprise: 1000 premium requests/user/month
-Requests beyond the included quota are billed at $0.04 per request. Use this information when analyzing premium request usage and cost optimization.
-Note: Per-user premium request breakdown is NOT available via API — only org-level totals by model. Per-user data can only be obtained through the GitHub UI email export.
+- Overage billed at $0.04/request
+- Monitoring API: GET /organizations/{org}/settings/billing/premium_request/usage (use actual org login, e.g. 'hpt-ho', not enterprise slug)
+- Per-user breakdown: only enterprise owners / billing managers can use the ?user= filter via API; org owners must use CSV export
+- Enterprise owners who are NOT org members should use the enterprise-level endpoint instead (see below)
+- Tools: fetch_premium_request_usage (org-level, requires org membership + admin:org scope + SSO auth), fetch_user_premium_request_usage (per-user via org endpoint), fetch_enterprise_premium_request_usage (RECOMMENDED for enterprise owners — works across all orgs without org membership)
 
 GitHub AI Credits (AIC) — NEW billing model effective June 1, 2026:
-- 1 AIC = $0.01 USD. Credits are token-based and pooled at the org level.
-- Included per user/month: Business 1,900 AIC ($19), Enterprise 3,900 AIC ($39).
+- 1 AIC = $0.01 USD. Credits are token-based (measured in input/output/cached tokens per model) and pooled at the billing entity level.
+- Included per user/month (pooled): Business 1,900 AIC ($19), Enterprise 3,900 AIC ($39).
 - Promotional period June 1–Sep 1, 2026: Business 3,000 AIC, Enterprise 7,000 AIC.
-- Code completions and Next Edit Suggestions remain unlimited (no AIC cost).
-- Use get_aic_usage to see per-user AIC consumption from usage reports.
-- Use get_aic_pool_status to see pool total vs consumed vs remaining and overage risk.
-- AIC data (aic_quantity, aic_gross_amount) is in the /copilot/metrics/reports/ NDJSON, available from Oct 10, 2025.
+- Code completions and Next Edit Suggestions remain UNLIMITED (no AIC cost).
+- AIC is consumed by: Chat, CLI, Agent Mode, Cloud Agent, Spaces, Spark, Code Review, 3rd-party agents.
+- IMPORTANT: The same /premium_request/usage endpoint is used to monitor AIC consumption after June 1. GitHub did not create a new API endpoint — the term changed, not the endpoint.
+- Per-user AIC from usage metrics: aic_quantity and aic_gross_amount fields in usage_users NDJSON report. These were preview/estimated before June 1 and will contain real data from June 1 onwards.
+- Tools: get_aic_usage (per-user AIC from usage metrics), get_aic_pool_status (pool total vs consumed vs remaining, overage risk), fetch_enterprise_premium_request_usage (per-user AIC/premium live API — PREFERRED for enterprise owners, requires admin:enterprise or manage_billing:enterprise PAT scope).
+- User-level budgets available via the Enhanced Billing API to cap per-user spend.
 
 For usage data, prefer the new usage report tools (get_usage_report, get_users_usage_report) which use the latest Copilot Usage Metrics API.
 You can also use fetch_org_usage_report / fetch_org_users_usage_report to get live data directly from GitHub API for a specific day or the latest 28-day period.

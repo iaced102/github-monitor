@@ -129,6 +129,93 @@ class GitHubAPI:
         except Exception:
             return []
 
+    async def list_teams(self, org: str) -> list[dict]:
+        """List all teams in an organization.
+        API: GET /orgs/{org}/teams
+        Returns list of team objects with slug, name, description, privacy, members_count.
+        Requires read:org scope.
+        """
+        try:
+            teams = []
+            page = 1
+            while True:
+                resp = await self.client.get(
+                    f"/orgs/{org}/teams",
+                    params={"per_page": 100, "page": page},
+                )
+                if resp.status_code in (404, 403):
+                    return []
+                resp.raise_for_status()
+                batch = resp.json()
+                if not batch:
+                    break
+                teams.extend(batch)
+                if len(batch) < 100:
+                    break
+                page += 1
+            return teams
+        except Exception:
+            return []
+
+    async def list_enterprise_teams(self, enterprise: str) -> list[dict]:
+        """List all teams in a GitHub Enterprise.
+        API: GET /enterprises/{enterprise}/teams
+        Returns list of team objects with id, name, slug, description.
+        Requires admin:enterprise or manage_billing:enterprise scope.
+        """
+        try:
+            teams = []
+            page = 1
+            while True:
+                resp = await self.client.get(
+                    f"/enterprises/{enterprise}/teams",
+                    params={"per_page": 100, "page": page},
+                )
+                if resp.status_code in (404, 403):
+                    return []
+                resp.raise_for_status()
+                batch = resp.json()
+                if not isinstance(batch, list):
+                    break
+                if not batch:
+                    break
+                teams.extend(batch)
+                if len(batch) < 100:
+                    break
+                page += 1
+            return teams
+        except Exception:
+            return []
+
+    async def get_enterprise_team_members(self, enterprise: str, team_id: int) -> list[dict]:
+        """Get all members of an enterprise team.
+        API: GET /enterprises/{enterprise}/teams/{team_id}/memberships
+        Returns list of member objects with login.
+        """
+        try:
+            members = []
+            page = 1
+            while True:
+                resp = await self.client.get(
+                    f"/enterprises/{enterprise}/teams/{team_id}/memberships",
+                    params={"per_page": 100, "page": page},
+                )
+                if resp.status_code in (404, 403):
+                    return []
+                resp.raise_for_status()
+                batch = resp.json()
+                if not isinstance(batch, list):
+                    break
+                if not batch:
+                    break
+                members.extend(batch)
+                if len(batch) < 100:
+                    break
+                page += 1
+            return members
+        except Exception:
+            return []
+
     async def get_team_members(self, org: str, team_slug: str) -> list[dict]:
         """Get all members of a team within an organization.
         API: GET /orgs/{org}/teams/{team_slug}/members
@@ -290,10 +377,17 @@ class GitHubAPI:
         year: int | None = None,
         month: int | None = None,
         day: int | None = None,
+        user: str | None = None,
+        model: str | None = None,
+        product: str | None = None,
     ) -> dict | None:
-        """Get Copilot premium request usage for an org.
+        """Get Copilot premium request usage for an org, optionally filtered by user.
         API: GET /organizations/{org}/settings/billing/premium_request/usage
         Note: uses /organizations/ not /orgs/.
+        The `user` parameter filters results to a specific GitHub username.
+        Only enterprise owners and billing managers can use the `user` filter;
+        org owners cannot filter by user via API (they must use CSV export).
+        Returns dict with data on success, or dict with '_error' key on failure.
         """
         try:
             params: dict = {}
@@ -303,16 +397,53 @@ class GitHubAPI:
                 params["month"] = month
             if day is not None:
                 params["day"] = day
+            if user:
+                params["user"] = user
+            if model:
+                params["model"] = model
+            if product:
+                params["product"] = product
             resp = await self.client.get(
                 f"/organizations/{org}/settings/billing/premium_request/usage",
                 params=params,
             )
             if resp.status_code in (404, 403):
-                return None
+                accepted_scopes = resp.headers.get("x-accepted-oauth-scopes", "")
+                body = {}
+                try:
+                    body = resp.json()
+                except Exception:
+                    body = {"text": resp.text}
+                hint = ""
+                msg = body.get("message", "")
+                if "SAML" in msg or "SSO" in msg:
+                    hint = (
+                        "The PAT must be SSO-authorized for this organization. "
+                        "Go to GitHub Settings > Personal access tokens > Configure SSO "
+                        f"and authorize the token for org '{org}'."
+                    )
+                elif resp.status_code == 404:
+                    hint = (
+                        f"Either the org '{org}' has not enabled the Enhanced Billing Platform, "
+                        f"or the PAT lacks required scope. Required scopes: {accepted_scopes or 'admin:org'}. "
+                        "Also ensure the PAT is SSO-authorized for the org if SAML SSO is enforced."
+                    )
+                elif resp.status_code == 403:
+                    hint = (
+                        f"Permission denied. Required PAT scopes: {accepted_scopes or 'admin:org'}. "
+                        "Current token may lack required permissions."
+                    )
+                return {
+                    "_error": True,
+                    "status_code": resp.status_code,
+                    "message": msg,
+                    "required_scopes": accepted_scopes,
+                    "hint": hint,
+                }
             resp.raise_for_status()
             return resp.json()
-        except httpx.HTTPStatusError:
-            return None
+        except httpx.HTTPStatusError as e:
+            return {"_error": True, "status_code": e.response.status_code, "message": str(e)}
 
     # =========================================================================
     # Copilot Usage Metrics Reports (new API with download_links)
@@ -536,9 +667,18 @@ class GitHubAPI:
         enterprise: str,
         year: int | None = None,
         month: int | None = None,
+        organization: str | None = None,
+        user: str | None = None,
+        model: str | None = None,
+        product: str | None = None,
+        cost_center_id: str | None = None,
     ) -> dict | None:
-        """Get premium request usage for an enterprise.
+        """Get premium request / AIC usage for an enterprise, optionally filtered.
         API: GET /enterprises/{enterprise}/settings/billing/premium_request/usage
+        IMPORTANT: Only works with classic PATs (NOT fine-grained PATs).
+        Requires classic PAT scope: admin:enterprise OR manage_billing:enterprise.
+        Supports filters: organization, user, model, product, cost_center_id.
+        Returns dict with data on success, or dict with '_error' key on failure.
         """
         try:
             params: dict = {}
@@ -546,16 +686,51 @@ class GitHubAPI:
                 params["year"] = year
             if month is not None:
                 params["month"] = month
+            if organization:
+                params["organization"] = organization
+            if user:
+                params["user"] = user
+            if model:
+                params["model"] = model
+            if product:
+                params["product"] = product
+            if cost_center_id:
+                params["cost_center_id"] = cost_center_id
             resp = await self.client.get(
                 f"/enterprises/{enterprise}/settings/billing/premium_request/usage",
                 params=params,
             )
             if resp.status_code in (404, 403):
-                return None
+                accepted_scopes = resp.headers.get("x-accepted-oauth-scopes", "")
+                body = {}
+                try:
+                    body = resp.json()
+                except Exception:
+                    body = {"text": resp.text}
+                msg = body.get("message", "")
+                if resp.status_code == 404:
+                    hint = (
+                        f"Enterprise '{enterprise}' may not have the Enhanced Billing Platform enabled, "
+                        f"or the PAT lacks required enterprise-level scope. "
+                        f"Required scopes: {accepted_scopes or 'admin:enterprise OR manage_billing:enterprise'}. "
+                        "Current token likely has 'admin:org' but needs 'admin:enterprise' or 'manage_billing:enterprise'. "
+                        "Update the PAT in GitHub Settings > Developer settings > Personal access tokens."
+                    )
+                else:
+                    hint = (
+                        f"Permission denied. Required PAT scopes: {accepted_scopes or 'admin:enterprise OR manage_billing:enterprise'}."
+                    )
+                return {
+                    "_error": True,
+                    "status_code": resp.status_code,
+                    "message": msg,
+                    "required_scopes": accepted_scopes,
+                    "hint": hint,
+                }
             resp.raise_for_status()
             return resp.json()
-        except httpx.HTTPStatusError:
-            return None
+        except httpx.HTTPStatusError as e:
+            return {"_error": True, "status_code": e.response.status_code, "message": str(e)}
 
     # =========================================================================
     # Copilot Seat Management (Operations)
