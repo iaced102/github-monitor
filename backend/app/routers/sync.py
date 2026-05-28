@@ -5,16 +5,23 @@ Supports background sync with real-time SSE log streaming.
 
 import asyncio
 import json
+import os
 
 from fastapi import APIRouter, Query
+from pydantic import BaseModel
 from starlette.responses import StreamingResponse
 
 from ..services.api_manager import api_manager
 from ..services.data_collector import DataCollector, data_collector, create_session_collector
+from ..services.pat_manager import pat_manager
 from ..services.session_manager import SESSIONS_DIR
 from ..services.sync_manager import sync_manager
 
 router = APIRouter(tags=["sync"])
+
+
+class ReloadPatRequest(BaseModel):
+    token: str = ""  # If provided, update GITHUB_PAT in os.environ before rebuild
 
 
 def _get_collectors(session_id: str | None) -> list[DataCollector]:
@@ -125,4 +132,39 @@ async def sync_status():
         "total_orgs": len(all_orgs),
         "orgs": orgs_with_data,
         "is_syncing": sync_manager.is_syncing,
+    }
+
+
+@router.post("/settings/reload-pat")
+async def reload_pat(body: ReloadPatRequest):
+    """Reload the GitHub PAT without restarting the server.
+
+    If a token is provided, updates GITHUB_PAT in the runtime environment.
+    Then rebuilds the API manager (re-creates httpx clients with the new token)
+    and re-discovers orgs/enterprises.
+
+    Use this after updating GITHUB_PAT in .env (then docker-compose restart),
+    OR pass the new token directly to apply immediately without restart.
+    """
+    if body.token.strip():
+        os.environ["GITHUB_PAT"] = body.token.strip()
+        # Clear cached PAT metadata so it's rebuilt with the new token
+        pat_manager._env_pat_meta = None
+
+    try:
+        await api_manager.rebuild()
+    except Exception as e:
+        return {"ok": False, "error": str(e)}
+
+    orgs = [o["login"] for o in api_manager.get_all_orgs()]
+    enterprises = [e["slug"] for e in api_manager.get_all_enterprises()]
+    users = api_manager.get_discovered_users()
+    user_logins = [u.get("login", "") for u in users.values()]
+
+    return {
+        "ok": True,
+        "message": "PAT reloaded successfully. Run Sync Data to refresh seat/usage data.",
+        "authenticated_as": user_logins,
+        "orgs_discovered": orgs,
+        "enterprises_discovered": enterprises,
     }

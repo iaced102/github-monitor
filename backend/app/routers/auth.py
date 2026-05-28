@@ -27,6 +27,9 @@ router = APIRouter(prefix="/auth", tags=["auth"])
 # In-memory session tokens → user info (cleared on server restart)
 _active_sessions: dict[str, dict] = {}
 
+# Usernames blocked from logging in (seed user when SEED_USER_ENABLED=false)
+_blocked_users: set[str] = {}
+
 # Paths that do NOT require authentication
 AUTH_PUBLIC_PATHS = {"/api/auth/status", "/api/auth/setup", "/api/auth/login", "/api/auth/me", "/api/health"}
 
@@ -66,11 +69,21 @@ def seed_user_setup():
     Reads SEED_USER_ENABLED, SEED_USER_USERNAME, SEED_USER_PASSWORD.
     If enabled, upserts the user with super_admin role on every startup so
     that container deployments never need to go through the setup UI.
+    If disabled, the user account is kept in the database but blocked from
+    logging in (SEED_USER_USERNAME is added to _blocked_users).
     """
-    if os.environ.get("SEED_USER_ENABLED", "false").lower() != "true":
+    enabled = os.environ.get("SEED_USER_ENABLED", "false").lower() == "true"
+    username = os.environ.get("SEED_USER_USERNAME", "").strip()
+
+    if not enabled:
+        if username:
+            _blocked_users.add(username)
+            print(f"[Auth] Seed user '{username}' login blocked (SEED_USER_ENABLED=false)")
         return
 
-    username = os.environ.get("SEED_USER_USERNAME", "").strip()
+    # Remove from blocked list in case it was previously disabled
+    _blocked_users.discard(username)
+
     password = os.environ.get("SEED_USER_PASSWORD", "").strip()
 
     if not username or not password:
@@ -164,6 +177,9 @@ async def auth_login(params: LoginParams, response: Response):
 
     user = db.get_app_user(params.username.strip())
     if user is None:
+        return {"error": "Invalid username or password."}
+
+    if params.username.strip() in _blocked_users:
         return {"error": "Invalid username or password."}
 
     if not _verify_password(params.password, user["password_hash"], user["salt"]):

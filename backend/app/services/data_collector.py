@@ -263,7 +263,11 @@ class DataCollector:
         # Seats
         try:
             seats = await api.get_copilot_seats(org)
-            if seats:
+            if seats and seats.get("_permission_error"):
+                summary["errors"].append(f"seats: {seats['message']}")
+                if log_fn:
+                    log_fn("error", f"  {org}: seats - {seats['message']}")
+            elif seats:
                 self._save_json("seats", org, seats)
                 summary["synced"].append(f"seats ({len(seats.get('seats', seats.get('total_seats', 0)))} total)")
                 if log_fn:
@@ -472,7 +476,11 @@ class DataCollector:
             # Seats
             try:
                 seats = await api.get_enterprise_copilot_seats(slug)
-                if seats:
+                if seats and seats.get("_permission_error"):
+                    summary["errors"].append(f"seats/{slug}: {seats['message']}")
+                    if log_fn:
+                        log_fn("error", f"  {slug}: seats - {seats['message']}")
+                elif seats:
                     self._save_json("seats", slug, seats)
                     summary["synced"].append(f"seats/{slug} ({len(seats.get('seats', []))} total)")
                     if log_fn:

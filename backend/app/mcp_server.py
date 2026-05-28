@@ -155,63 +155,6 @@ def find_inactive_users(org: str = "", days: int = 30) -> str:
     })
 
 
-@mcp.tool()
-async def remove_user_seat(org: str, usernames: list[str]) -> str:
-    """Remove Copilot seats for specified users. Auto-detects org-level vs team-level assignment. Destructive operation — use after admin confirmation.
-
-    Args:
-        org: Organization name.
-        usernames: List of GitHub usernames to remove from Copilot.
-    """
-    api = _api.get_api_for_org(org)
-    if not api:
-        return json.dumps({"error": f"No API client available for org '{org}'."})
-
-    seats_data = _collector.load_latest("seats", org)
-    seat_map: dict[str, dict | None] = {}
-    if seats_data:
-        for seat in seats_data.get("seats", []):
-            login = (seat.get("assignee") or {}).get("login", "")
-            if login:
-                seat_map[login.lower()] = seat.get("assigning_team")
-
-    org_level_users: list[str] = []
-    team_removals: list[tuple[str, str]] = []
-    for username in usernames:
-        team = seat_map.get(username.lower())
-        if team and team.get("slug"):
-            team_removals.append((username, team["slug"]))
-        else:
-            org_level_users.append(username)
-
-    results: list[dict] = []
-    if org_level_users:
-        result = await api.remove_copilot_seats(org, org_level_users)
-        results.append({"method": "org_level", "usernames": org_level_users, "result": result})
-    for username, team_slug in team_removals:
-        result = await api.remove_team_membership(org, team_slug, username)
-        results.append({"method": "team_level", "username": username, "team": team_slug, "result": result})
-
-    return json.dumps(results, default=str)
-
-
-@mcp.tool()
-async def add_team_member(org: str, team_slug: str, username: str, role: str = "member") -> str:
-    """Add a user to an organization team. Grants team-level Copilot access if the team has Copilot enabled.
-
-    Args:
-        org: Organization name.
-        team_slug: Team slug (e.g. 'level1-team1').
-        username: GitHub username to add.
-        role: Role in team: 'member' (default) or 'maintainer'.
-    """
-    api = _api.get_api_for_org(org)
-    if not api:
-        return json.dumps({"error": f"No API client available for org '{org}'."})
-    result = await api.add_team_membership(org, team_slug, username, role)
-    return json.dumps(result, default=str)
-
-
 # ===================================================================
 # BILLING TOOLS (2)
 # ===================================================================
@@ -526,58 +469,8 @@ async def fetch_premium_request_usage(org: str, year: int = 0, month: int = 0) -
 
 
 # ===================================================================
-# ACTION TOOLS (3)
+# ACTION TOOLS (2)
 # ===================================================================
-
-@mcp.tool()
-async def batch_remove_seats(org: str, usernames: list[str], reason: str = "inactive") -> str:
-    """Batch remove Copilot seats for multiple users. Auto-detects org-level vs team-level assignment. Records the action in audit log. Requires admin confirmation.
-
-    Args:
-        org: Organization name.
-        usernames: List of GitHub usernames to remove.
-        reason: Reason for removal.
-    """
-    api = _api.get_api_for_org(org)
-    if not api:
-        return json.dumps({"error": f"No API client available for org '{org}'."})
-
-    seat_map: dict[str, dict | None] = {}
-    seats_data = _collector.load_latest("seats", org)
-    if seats_data:
-        for seat in seats_data.get("seats", []):
-            login = (seat.get("assignee") or {}).get("login", "")
-            if login:
-                seat_map[login.lower()] = seat.get("assigning_team")
-
-    org_level_users: list[str] = []
-    team_removals: list[tuple[str, str]] = []
-    for username in usernames:
-        team = seat_map.get(username.lower())
-        if team and team.get("slug"):
-            team_removals.append((username, team["slug"]))
-        else:
-            org_level_users.append(username)
-
-    results: list[dict] = []
-    if org_level_users:
-        result = await api.remove_copilot_seats(org, org_level_users)
-        results.append({"method": "org_level", "usernames": org_level_users, "result": result})
-    for username, team_slug in team_removals:
-        result = await api.remove_team_membership(org, team_slug, username)
-        results.append({"method": "team_level", "username": username, "team": team_slug, "result": result})
-
-    _audit_log({
-        "timestamp": datetime.now(timezone.utc).isoformat(),
-        "action": "batch_remove_seats",
-        "org": org, "usernames": usernames, "reason": reason, "results": results,
-    })
-
-    return json.dumps({
-        "action": "batch_remove_seats", "org": org,
-        "users_removed": usernames, "count": len(usernames), "results": results,
-    }, default=str)
-
 
 @mcp.tool()
 def record_recommendation(

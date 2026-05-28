@@ -2,10 +2,10 @@
 GitHub Enterprise Cost Center management tools for the AI engine.
 Uses the GitHub Billing Cost Centers REST API (version 2026-03-10).
 All endpoints operate at the enterprise level.
+Read-only: lists and reads cost centers only (no write operations).
 
 Enterprise and cost center data is pre-synced during Sync Data and stored as JSON
-files in the data directory. Tools read from this local cache for lookups and
-use live API calls only for write operations.
+files in the data directory. Tools read from this local cache for lookups.
 """
 
 from __future__ import annotations
@@ -43,14 +43,6 @@ class ListCostCentersParams(BaseModel):
     )
 
 
-class CreateCostCenterParams(BaseModel):
-    enterprise: str = Field(
-        default="",
-        description="Enterprise slug. Leave empty to auto-detect from synced data.",
-    )
-    name: str = Field(description="Name for the new cost center")
-
-
 class GetCostCenterParams(BaseModel):
     enterprise: str = Field(
         default="",
@@ -59,65 +51,8 @@ class GetCostCenterParams(BaseModel):
     cost_center_id: str = Field(description="The unique ID of the cost center")
 
 
-class UpdateCostCenterParams(BaseModel):
-    enterprise: str = Field(
-        default="",
-        description="Enterprise slug. Leave empty to auto-detect from synced data.",
-    )
-    cost_center_id: str = Field(description="The unique ID of the cost center")
-    name: str = Field(description="New name for the cost center")
-
-
-class DeleteCostCenterParams(BaseModel):
-    enterprise: str = Field(
-        default="",
-        description="Enterprise slug. Leave empty to auto-detect from synced data.",
-    )
-    cost_center_id: str = Field(description="The unique ID of the cost center to archive/delete")
-
-
-class AddCostCenterResourceParams(BaseModel):
-    enterprise: str = Field(
-        default="",
-        description="Enterprise slug. Leave empty to auto-detect from synced data.",
-    )
-    cost_center_id: str = Field(description="The unique ID of the cost center")
-    users: list[str] = Field(
-        default_factory=list,
-        description="GitHub usernames to assign to this cost center",
-    )
-    organizations: list[str] = Field(
-        default_factory=list,
-        description="Organization login names to assign to this cost center",
-    )
-    repositories: list[str] = Field(
-        default_factory=list,
-        description="Repositories in 'org/repo' format to assign to this cost center",
-    )
-
-
 class GetSyncedEnterpriseDataParams(BaseModel):
     pass
-
-
-class RemoveCostCenterResourceParams(BaseModel):
-    enterprise: str = Field(
-        default="",
-        description="Enterprise slug. Leave empty to auto-detect from synced data.",
-    )
-    cost_center_id: str = Field(description="The unique ID of the cost center")
-    users: list[str] = Field(
-        default_factory=list,
-        description="GitHub usernames to remove from this cost center",
-    )
-    organizations: list[str] = Field(
-        default_factory=list,
-        description="Organization login names to remove from this cost center",
-    )
-    repositories: list[str] = Field(
-        default_factory=list,
-        description="Repositories in 'org/repo' format to remove from this cost center",
-    )
 
 
 # ---------------------------------------------------------------------------
@@ -283,35 +218,6 @@ def create_cost_center_tools(
 
     @define_tool(
         description=(
-            "Create a new cost center for a GitHub Enterprise. "
-            "Returns the created cost center object including its ID. "
-            "This is a write operation — confirm the name before executing. "
-            "Leave enterprise empty to auto-detect from synced data."
-        )
-    )
-    async def create_cost_center(params: CreateCostCenterParams) -> str:
-        enterprise = _resolve_enterprise(params.enterprise)
-        if not enterprise:
-            return _enterprise_error(params.enterprise)
-
-        if not api_manager:
-            return json.dumps({"error": "No API manager available."})
-        api = _get_api(enterprise)
-        if not api:
-            return json.dumps({"error": f"No API client found for enterprise '{enterprise}'."})
-
-        resp = await api.client.post(
-            f"/enterprises/{enterprise}/settings/billing/cost-centers",
-            json={"name": params.name},
-            headers=_VERSION_HEADER,
-        )
-        if resp.status_code == 404:
-            return json.dumps({"error": "Enterprise not found or Cost Centers API not available."})
-        resp.raise_for_status()
-        return json.dumps(resp.json())
-
-    @define_tool(
-        description=(
             "Get details for a specific cost center by its ID. "
             "Returns the cost center name, state, and all assigned resources (users, orgs, repos). "
             "Leave enterprise empty to auto-detect from synced data."
@@ -335,141 +241,8 @@ def create_cost_center_tools(
         resp.raise_for_status()
         return json.dumps(resp.json())
 
-    @define_tool(
-        description=(
-            "Update the name of an existing cost center. "
-            "Returns the updated cost center object. "
-            "This is a write operation — confirm the new name before executing. "
-            "Leave enterprise empty to auto-detect from synced data."
-        )
-    )
-    async def update_cost_center(params: UpdateCostCenterParams) -> str:
-        enterprise = _resolve_enterprise(params.enterprise)
-        if not enterprise:
-            return _enterprise_error(params.enterprise)
-
-        if not api_manager:
-            return json.dumps({"error": "No API manager available."})
-        api = _get_api(enterprise)
-        if not api:
-            return json.dumps({"error": f"No API client found for enterprise '{enterprise}'."})
-
-        url = f"/enterprises/{enterprise}/settings/billing/cost-centers/{params.cost_center_id}"
-        resp = await api.client.patch(url, json={"name": params.name}, headers=_VERSION_HEADER)
-        if resp.status_code == 404:
-            return json.dumps({"error": f"Cost center '{params.cost_center_id}' not found."})
-        resp.raise_for_status()
-        return json.dumps(resp.json())
-
-    @define_tool(
-        description=(
-            "Delete (archive) a cost center by its ID. "
-            "Archived cost centers are hidden from active listings but not permanently removed. "
-            "This is a destructive operation — confirm the cost center ID before executing. "
-            "Leave enterprise empty to auto-detect from synced data."
-        )
-    )
-    async def delete_cost_center(params: DeleteCostCenterParams) -> str:
-        enterprise = _resolve_enterprise(params.enterprise)
-        if not enterprise:
-            return _enterprise_error(params.enterprise)
-
-        if not api_manager:
-            return json.dumps({"error": "No API manager available."})
-        api = _get_api(enterprise)
-        if not api:
-            return json.dumps({"error": f"No API client found for enterprise '{enterprise}'."})
-
-        url = f"/enterprises/{enterprise}/settings/billing/cost-centers/{params.cost_center_id}"
-        resp = await api.client.delete(url, headers=_VERSION_HEADER)
-        if resp.status_code == 404:
-            return json.dumps({"error": f"Cost center '{params.cost_center_id}' not found."})
-        resp.raise_for_status()
-        return json.dumps({"success": True, "enterprise": enterprise, "cost_center_id": params.cost_center_id})
-
-    @define_tool(
-        description=(
-            "Add users, organizations, or repositories to a cost center. "
-            "Provide at least one of: users (GitHub usernames), organizations (org logins), "
-            "or repositories ('org/repo' format). "
-            "This is a write operation — confirm the resources before executing. "
-            "Leave enterprise empty to auto-detect from synced data."
-        )
-    )
-    async def add_cost_center_resources(params: AddCostCenterResourceParams) -> str:
-        enterprise = _resolve_enterprise(params.enterprise)
-        if not enterprise:
-            return _enterprise_error(params.enterprise)
-
-        if not api_manager:
-            return json.dumps({"error": "No API manager available."})
-        api = _get_api(enterprise)
-        if not api:
-            return json.dumps({"error": f"No API client found for enterprise '{enterprise}'."})
-
-        if not params.users and not params.organizations and not params.repositories:
-            return json.dumps({"error": "Provide at least one of: users, organizations, repositories."})
-
-        url = f"/enterprises/{enterprise}/settings/billing/cost-centers/{params.cost_center_id}/resource"
-        body: dict = {}
-        if params.users:
-            body["users"] = params.users
-        if params.organizations:
-            body["organizations"] = params.organizations
-        if params.repositories:
-            body["repositories"] = params.repositories
-
-        resp = await api.client.post(url, json=body, headers=_VERSION_HEADER)
-        if resp.status_code == 404:
-            return json.dumps({"error": f"Cost center '{params.cost_center_id}' not found."})
-        resp.raise_for_status()
-        return json.dumps(resp.json() if resp.content else {"success": True})
-
-    @define_tool(
-        description=(
-            "Remove users, organizations, or repositories from a cost center. "
-            "Provide at least one of: users (GitHub usernames), organizations (org logins), "
-            "or repositories ('org/repo' format). "
-            "This is a write operation — confirm the resources before executing. "
-            "Leave enterprise empty to auto-detect from synced data."
-        )
-    )
-    async def remove_cost_center_resources(params: RemoveCostCenterResourceParams) -> str:
-        enterprise = _resolve_enterprise(params.enterprise)
-        if not enterprise:
-            return _enterprise_error(params.enterprise)
-
-        if not api_manager:
-            return json.dumps({"error": "No API manager available."})
-        api = _get_api(enterprise)
-        if not api:
-            return json.dumps({"error": f"No API client found for enterprise '{enterprise}'."})
-
-        if not params.users and not params.organizations and not params.repositories:
-            return json.dumps({"error": "Provide at least one of: users, organizations, repositories."})
-
-        url = f"/enterprises/{enterprise}/settings/billing/cost-centers/{params.cost_center_id}/resource"
-        body: dict = {}
-        if params.users:
-            body["users"] = params.users
-        if params.organizations:
-            body["organizations"] = params.organizations
-        if params.repositories:
-            body["repositories"] = params.repositories
-
-        resp = await api.client.request("DELETE", url, json=body, headers=_VERSION_HEADER)
-        if resp.status_code == 404:
-            return json.dumps({"error": f"Cost center '{params.cost_center_id}' not found."})
-        resp.raise_for_status()
-        return json.dumps(resp.json() if resp.content else {"success": True})
-
     return [
         get_synced_enterprise_data,
         list_cost_centers,
-        create_cost_center,
         get_cost_center,
-        update_cost_center,
-        delete_cost_center,
-        add_cost_center_resources,
-        remove_cost_center_resources,
     ]

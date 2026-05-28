@@ -183,6 +183,7 @@ export function UserGroupsPage() {
   const [showNewManager, setShowNewManager] = useState(false);
   const [newMgrUsername, setNewMgrUsername] = useState("");
   const [newMgrPassword, setNewMgrPassword] = useState("");
+  const [newMgrRole, setNewMgrRole] = useState<"super_admin" | "manager">("manager");
   const [newMgrGroups, setNewMgrGroups] = useState<Set<number>>(new Set());
   const [mgrSaving, setMgrSaving] = useState(false);
   const [resetPasswordFor, setResetPasswordFor] = useState<string | null>(null);
@@ -259,12 +260,13 @@ export function UserGroupsPage() {
   const handleCreateManager = async () => {
     if (!newMgrUsername.trim() || !newMgrPassword.trim()) return;
     setMgrSaving(true);
-    await apiPost("/api/managers", {
+    await apiPost("/api/users", {
       username: newMgrUsername.trim(),
       password: newMgrPassword.trim(),
-      group_ids: Array.from(newMgrGroups),
+      role: newMgrRole,
+      group_ids: newMgrRole === "manager" ? Array.from(newMgrGroups) : [],
     });
-    setNewMgrUsername(""); setNewMgrPassword(""); setNewMgrGroups(new Set()); setShowNewManager(false);
+    setNewMgrUsername(""); setNewMgrPassword(""); setNewMgrRole("manager"); setNewMgrGroups(new Set()); setShowNewManager(false);
     await loadManagers();
     setMgrSaving(false);
   };
@@ -423,6 +425,18 @@ export function UserGroupsPage() {
                 value={newMgrPassword}
                 onChange={(e) => setNewMgrPassword(e.target.value)}
               />
+              <div style={{ display: "flex", alignItems: "center", gap: 8, margin: "4px 0" }}>
+                <span style={{ fontSize: 12, color: "var(--text-secondary)" }}>Role:</span>
+                <select
+                  className="lifecycle-select"
+                  value={newMgrRole}
+                  onChange={(e) => setNewMgrRole(e.target.value as "super_admin" | "manager")}
+                >
+                  <option value="manager">Manager</option>
+                  <option value="super_admin">Super Admin</option>
+                </select>
+              </div>
+              {newMgrRole === "manager" && (
               <div className="groups-assign-groups">
                 <div className="groups-assign-label">{t("groups.assignGroups")}</div>
                 {groups.map((g) => (
@@ -443,6 +457,7 @@ export function UserGroupsPage() {
                   </label>
                 ))}
               </div>
+              )}
               <div className="groups-form-actions">
                 <button className="btn btn-small btn-primary" onClick={handleCreateManager} disabled={mgrSaving}>
                   {mgrSaving ? "…" : t("groups.save")}

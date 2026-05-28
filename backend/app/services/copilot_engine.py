@@ -132,10 +132,10 @@ class CopilotAIEngine:
             collector = data_collector
 
         tools = (
-            create_seat_tools(collector, api_manager=self._api_manager)
+            create_seat_tools(collector)
             + create_usage_tools(collector, api_manager=self._api_manager)
             + create_billing_tools(collector)
-            + create_action_tools(api_manager=self._api_manager, collector=collector)
+            + create_action_tools(collector=collector)
             + create_cost_center_tools(api_manager=self._api_manager, collector=collector)
         )
         return tools

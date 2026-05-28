@@ -322,7 +322,10 @@ class GitHubAPI:
     # =========================================================================
 
     async def get_copilot_seats(self, org: str) -> dict | None:
-        """Get all Copilot seat assignments for an org."""
+        """Get all Copilot seat assignments for an org.
+        Returns None if org not found (404).
+        Returns dict with _permission_error=True on 403 (missing scope or SSO not authorized).
+        """
         try:
             all_seats = []
             page = 1
@@ -334,6 +337,33 @@ class GitHubAPI:
                 )
                 if resp.status_code == 404:
                     return None
+                if resp.status_code == 403:
+                    body = {}
+                    try:
+                        body = resp.json()
+                    except Exception:
+                        pass
+                    msg = body.get("message", "")
+                    if "SAML" in msg or "SSO" in msg or "sso" in msg.lower():
+                        return {
+                            "_permission_error": True,
+                            "_sso_required": True,
+                            "message": (
+                                f"403 Forbidden (SSO): PAT is not authorized for org '{org}' via SAML SSO. "
+                                "Go to GitHub Settings → Personal access tokens → [your token] → Configure SSO "
+                                f"and click 'Authorize' next to '{org}'."
+                            ),
+                        }
+                    return {
+                        "_permission_error": True,
+                        "message": (
+                            f"403 Forbidden: PAT lacks permission to read Copilot seats for org '{org}'. "
+                            "Required scope: 'manage_billing:copilot' (classic PAT) "
+                            "or 'GitHub Copilot Business: Read' (fine-grained PAT). "
+                            "If the org enforces SAML SSO, also authorize the PAT for SSO "
+                            "(GitHub Settings → Personal access tokens → Configure SSO)."
+                        ),
+                    }
                 resp.raise_for_status()
                 data = resp.json()
                 total = data.get("total_seats", 0)
@@ -343,8 +373,8 @@ class GitHubAPI:
                 all_seats.extend(seats)
                 page += 1
             return {"total_seats": total, "seats": all_seats}
-        except httpx.HTTPStatusError:
-            return None
+        except httpx.HTTPStatusError as e:
+            return {"_permission_error": True, "message": f"HTTP {e.response.status_code}: {e}"}
 
     # =========================================================================
     # Copilot Metrics (legacy /copilot/metrics endpoint)
@@ -625,6 +655,7 @@ class GitHubAPI:
     async def get_enterprise_copilot_seats(self, enterprise: str) -> dict | None:
         """Get all Copilot seat assignments for an enterprise.
         API: GET /enterprises/{enterprise}/copilot/billing/seats
+        Returns dict with _permission_error=True on 403 (missing scope or SSO not authorized).
         """
         try:
             all_seats = []
@@ -635,8 +666,33 @@ class GitHubAPI:
                     f"/enterprises/{enterprise}/copilot/billing/seats",
                     params={"per_page": 100, "page": page},
                 )
-                if resp.status_code in (404, 403):
+                if resp.status_code == 404:
                     return None
+                if resp.status_code == 403:
+                    body = {}
+                    try:
+                        body = resp.json()
+                    except Exception:
+                        pass
+                    msg = body.get("message", "")
+                    if "SAML" in msg or "SSO" in msg or "sso" in msg.lower():
+                        return {
+                            "_permission_error": True,
+                            "_sso_required": True,
+                            "message": (
+                                f"403 Forbidden (SSO): PAT is not authorized for enterprise '{enterprise}' via SAML SSO. "
+                                "Go to GitHub Settings → Personal access tokens → [your token] → Configure SSO "
+                                f"and authorize the token for the enterprise."
+                            ),
+                        }
+                    return {
+                        "_permission_error": True,
+                        "message": (
+                            f"403 Forbidden: PAT lacks permission to read Copilot seats for enterprise '{enterprise}'. "
+                            "Required scope: 'manage_billing:enterprise' or 'admin:enterprise' (classic PAT). "
+                            "If the enterprise enforces SAML SSO, also authorize the PAT for SSO."
+                        ),
+                    }
                 resp.raise_for_status()
                 data = resp.json()
                 total = data.get("total_seats", 0)
@@ -646,8 +702,8 @@ class GitHubAPI:
                 all_seats.extend(seats)
                 page += 1
             return {"total_seats": total, "seats": all_seats}
-        except httpx.HTTPStatusError:
-            return None
+        except httpx.HTTPStatusError as e:
+            return {"_permission_error": True, "message": f"HTTP {e.response.status_code}: {e}"}
 
     async def get_enterprise_copilot_metrics(self, enterprise: str) -> list | None:
         """Get Copilot metrics for an enterprise (legacy metrics API).
@@ -732,81 +788,3 @@ class GitHubAPI:
         except httpx.HTTPStatusError as e:
             return {"_error": True, "status_code": e.response.status_code, "message": str(e)}
 
-    # =========================================================================
-    # Copilot Seat Management (Operations)
-    # =========================================================================
-
-    async def add_copilot_seats(self, org: str, usernames: list[str]) -> dict | None:
-        """Add Copilot seats for specified users.
-        API: POST /orgs/{org}/copilot/billing/selected_users
-        """
-        try:
-            resp = await self.client.post(
-                f"/orgs/{org}/copilot/billing/selected_users",
-                json={"selected_usernames": usernames},
-            )
-            resp.raise_for_status()
-            return resp.json()
-        except httpx.HTTPStatusError as e:
-            return {"error": str(e), "status_code": e.response.status_code}
-
-    async def remove_copilot_seats(self, org: str, usernames: list[str]) -> dict | None:
-        """Remove org-level Copilot seats for specified users.
-        Only works for users assigned directly (no assigning_team).
-        API: DELETE /orgs/{org}/copilot/billing/selected_users
-        """
-        try:
-            resp = await self.client.request(
-                "DELETE",
-                f"/orgs/{org}/copilot/billing/selected_users",
-                json={"selected_usernames": usernames},
-            )
-            resp.raise_for_status()
-            return resp.json()
-        except httpx.HTTPStatusError as e:
-            error_body = {}
-            try:
-                error_body = e.response.json()
-            except Exception:
-                error_body = {"text": e.response.text}
-            return {"error": str(e), "status_code": e.response.status_code, "response": error_body}
-
-    async def add_team_membership(self, org: str, team_slug: str, username: str, role: str = "member") -> dict:
-        """Add or update team membership for a user.
-        API: PUT /orgs/{org}/teams/{team_slug}/memberships/{username}
-        Role can be 'member' (default) or 'maintainer'.
-        """
-        try:
-            resp = await self.client.put(
-                f"/orgs/{org}/teams/{team_slug}/memberships/{username}",
-                json={"role": role},
-            )
-            resp.raise_for_status()
-            return resp.json()
-        except httpx.HTTPStatusError as e:
-            error_body = {}
-            try:
-                error_body = e.response.json()
-            except Exception:
-                error_body = {"text": e.response.text}
-            return {"error": str(e), "status_code": e.response.status_code, "response": error_body}
-
-    async def remove_team_membership(self, org: str, team_slug: str, username: str) -> dict:
-        """Remove a user from a team, which revokes their team-assigned Copilot seat.
-        API: DELETE /orgs/{org}/teams/{team_slug}/memberships/{username}
-        Returns 204 on success.
-        """
-        try:
-            resp = await self.client.request(
-                "DELETE",
-                f"/orgs/{org}/teams/{team_slug}/memberships/{username}",
-            )
-            resp.raise_for_status()
-            return {"success": True, "username": username, "team": team_slug}
-        except httpx.HTTPStatusError as e:
-            error_body = {}
-            try:
-                error_body = e.response.json()
-            except Exception:
-                error_body = {"text": e.response.text}
-            return {"error": str(e), "status_code": e.response.status_code, "response": error_body}
