@@ -8,7 +8,7 @@ import io
 import json
 import shutil
 from collections import defaultdict
-from datetime import datetime, timezone
+from datetime import datetime, timezone, date
 from pathlib import Path
 
 from fastapi import APIRouter, Query, Request, UploadFile, File
@@ -22,6 +22,18 @@ from ..services import database as db_module
 from ..config import COPILOT_PRICING
 
 router = APIRouter(tags=["data"])
+
+
+def _is_active_in_billing_cycle(last_activity_at: str | None) -> bool:
+    """Check if user was active in the current billing cycle (1st of month to today)."""
+    if not last_activity_at:
+        return False
+    try:
+        last_dt = datetime.fromisoformat(last_activity_at.replace("Z", "+00:00"))
+        cycle_start = datetime.now(timezone.utc).replace(day=1, hour=0, minute=0, second=0, microsecond=0)
+        return last_dt >= cycle_start
+    except (ValueError, TypeError):
+        return False
 
 
 def _get_scope_usernames(request: Request, group_id: int | None = None) -> set[str] | None:
@@ -112,12 +124,8 @@ async def get_orgs():
             active_seats = 0
             for s in seats_data.get("seats", []):
                 last = s.get("last_activity_at")
-                if last:
-                    try:
-                        if (now - datetime.fromisoformat(last.replace("Z", "+00:00"))).days < 30:
-                            active_seats += 1
-                    except (ValueError, TypeError):
-                        pass
+                if _is_active_in_billing_cycle(last):
+                    active_seats += 1
         org_data = {
             "login": slug,
             "avatar_url": None,
@@ -209,7 +217,7 @@ async def get_overview(request: Request, group_id: int = Query(default=0)):
                     last = s.get("last_activity_at")
                     if last:
                         try:
-                            if (now - datetime.fromisoformat(last.replace("Z", "+00:00"))).days < 30:
+                            if _is_active_in_billing_cycle(last):
                                 is_active = True
                                 break
                         except (ValueError, TypeError):
@@ -259,6 +267,9 @@ async def get_overview(request: Request, group_id: int = Query(default=0)):
         for plan in sorted(plan_seats)
     ]
 
+    today = date.today()
+    billing_cycle_start = today.replace(day=1).isoformat()
+
     return {
         "total_organizations": len(all_scope_names),
         "orgs_with_copilot": orgs_with_copilot,
@@ -271,7 +282,9 @@ async def get_overview(request: Request, group_id: int = Query(default=0)):
         "annual_waste": total_waste * 12,
         "plan_breakdown": plan_breakdown,
         "pending_cancellation": total_pending_cancellation,
-        "active_window_days": 30,
+        "active_window": "billing_cycle",
+        "billing_cycle_start": billing_cycle_start,
+        "billing_cycle_end": today.isoformat(),
     }
 
 
@@ -304,7 +317,12 @@ async def get_billing(org: str):
 
 
 @router.get("/data/dashboard")
-async def get_dashboard(request: Request, orgs: str = Query(default=""), group_id: int = Query(default=0)):
+async def get_dashboard(
+    request: Request,
+    orgs: str = Query(default=""),
+    group_id: int = Query(default=0),
+    month: str = Query(default="", description="Billing cycle month, e.g. '2026-05'. Empty = current month."),
+):
     """Aggregated dashboard data for visualization.
 
     Query param ``orgs`` is a comma-separated list of org logins to include.
@@ -313,6 +331,24 @@ async def get_dashboard(request: Request, orgs: str = Query(default=""), group_i
     to members of a specific group.
     """
     scope_users = _get_scope_usernames(request, group_id or None)
+
+    # Parse month parameter for billing cycle filtering
+    import calendar
+    if month.strip():
+        try:
+            parts = month.strip().split("-")
+            m_year, m_month = int(parts[0]), int(parts[1])
+            cycle_start_day = date(m_year, m_month, 1)
+            last_day = calendar.monthrange(m_year, m_month)[1]
+            cycle_end_day = date(m_year, m_month, last_day)
+        except (ValueError, IndexError):
+            cycle_start_day = date.today().replace(day=1)
+            cycle_end_day = date.today()
+    else:
+        cycle_start_day = date.today().replace(day=1)
+        cycle_end_day = date.today()
+    cycle_start_str = cycle_start_day.isoformat()
+    cycle_end_str = cycle_end_day.isoformat()
 
     all_org_names = _get_all_scope_names()
     selected = [o.strip() for o in orgs.split(",") if o.strip()] if orgs.strip() else all_org_names
@@ -360,13 +396,9 @@ async def get_dashboard(request: Request, orgs: str = Query(default=""), group_i
                 # User is active if ANY of their seat records shows recent activity
                 for seat in user_seats:
                     last = seat.get("last_activity_at")
-                    if last:
-                        try:
-                            if (_now - datetime.fromisoformat(last.replace("Z", "+00:00"))).days < 30:
-                                is_active = True
-                                break
-                        except (ValueError, TypeError):
-                            pass
+                    if _is_active_in_billing_cycle(last):
+                        is_active = True
+                        break
                 grp_plan_seats[plan] = grp_plan_seats.get(plan, 0) + 1
                 if is_active:
                     a += 1
@@ -401,13 +433,9 @@ async def get_dashboard(request: Request, orgs: str = Query(default=""), group_i
                 is_active = False
                 for seat in user_seats:
                     last = seat.get("last_activity_at")
-                    if last:
-                        try:
-                            if (_now - datetime.fromisoformat(last.replace("Z", "+00:00"))).days < 30:
-                                is_active = True
-                                break
-                        except (ValueError, TypeError):
-                            pass
+                    if _is_active_in_billing_cycle(last):
+                        is_active = True
+                        break
                 org_plan_seats[plan] = org_plan_seats.get(plan, 0) + 1
                 if is_active:
                     a += 1
@@ -517,7 +545,7 @@ async def get_dashboard(request: Request, orgs: str = Query(default=""), group_i
     date_end = ""
 
     for org_name in selected:
-        usage = data_collector.load_latest("usage", org_name)
+        usage = data_collector.load_daily_usage(org_name, start_day=cycle_start_str, end_day=cycle_end_str)
         if not usage:
             continue
 

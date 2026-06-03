@@ -28,7 +28,7 @@ router = APIRouter(prefix="/auth", tags=["auth"])
 _active_sessions: dict[str, dict] = {}
 
 # Usernames blocked from logging in (seed user when SEED_USER_ENABLED=false)
-_blocked_users: set[str] = {}
+_blocked_users: set[str] = set()
 
 # Paths that do NOT require authentication
 AUTH_PUBLIC_PATHS = {"/api/auth/status", "/api/auth/setup", "/api/auth/login", "/api/auth/me", "/api/health"}

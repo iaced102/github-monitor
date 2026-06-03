@@ -115,19 +115,23 @@ def evaluate_alerts(collector: "DataCollector") -> list[dict]:
         inactive_seats = 0
         inactive_by_org: dict[str, tuple[int, int]] = {}  # org -> (inactive, total)
 
+        cycle_start = datetime.now(timezone.utc).replace(day=1, hour=0, minute=0, second=0, microsecond=0)
+        days_into_cycle = (datetime.now(timezone.utc) - cycle_start).days
+
         for org, data in all_seats.items():
             seats_list = data.get("seats", []) if isinstance(data, dict) else []
             org_total = len(seats_list)
             org_inactive = sum(
                 1 for s in seats_list
-                if not s.get("last_activity_at") or _days_since(s.get("last_activity_at", "")) >= 30
+                if not _is_active_since(s.get("last_activity_at", ""), cycle_start)
             )
             total_seats += org_total
             inactive_seats += org_inactive
             if org_total > 0:
                 inactive_by_org[org] = (org_inactive, org_total)
 
-        if total_seats > 0:
+        # Suppress alert in first 7 days of billing cycle (not enough data)
+        if total_seats > 0 and days_into_cycle >= 7:
             rate = inactive_seats / total_seats * 100
             lvl = _level(rate, thresh.get("warn", 25), thresh.get("critical", 40))
             if lvl != "ok":
@@ -268,3 +272,14 @@ def _days_since(ts: str) -> int:
         return (datetime.now(timezone.utc) - dt).days
     except Exception:
         return 999
+
+
+def _is_active_since(ts: str, since: datetime) -> bool:
+    """Return True if timestamp is on or after `since`."""
+    if not ts:
+        return False
+    try:
+        dt = datetime.fromisoformat(ts.replace("Z", "+00:00"))
+        return dt >= since
+    except Exception:
+        return False

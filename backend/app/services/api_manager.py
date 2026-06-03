@@ -9,6 +9,7 @@ from datetime import datetime, timezone
 
 from ..config import config
 from .github_api import GitHubAPI
+from .github_app_auth import github_app_auth
 from .pat_manager import pat_manager
 
 
@@ -42,12 +43,23 @@ class APIManager:
         for pat in pats:
             pat_id = pat["id"]
             token = pat["token"]
-            api = GitHubAPI(token=token, base_url=config.github_api_base)
+
+            if pat.get("auth_mode") == "github_app":
+                api = GitHubAPI(app_auth=github_app_auth, base_url=config.github_api_base)
+            else:
+                api = GitHubAPI(token=token, base_url=config.github_api_base)
             self._instances[pat_id] = api
 
             try:
-                # Discover user
-                user = await api.discover_user()
+                # Discovery differs for GitHub App vs PAT
+                if pat.get("auth_mode") == "github_app":
+                    app_info = await api.discover_app_installation()
+                    user = app_info["user"]
+                    orgs = app_info["orgs"]
+                else:
+                    user = await api.discover_user()
+                    orgs = await api.discover_orgs()
+
                 self._discovered_users[pat_id] = user
                 print(f"[APIManager] PAT '{pat['label']}' authenticated as: {user.get('login', 'unknown')}")
 
@@ -59,7 +71,6 @@ class APIManager:
                 )
 
                 # Discover orgs
-                orgs = await api.discover_orgs()
                 org_logins = [o["login"] for o in orgs]
                 pat_manager.update(pat_id, orgs=org_logins)
                 print(f"[APIManager] PAT '{pat['label']}' has {len(orgs)} orgs: {org_logins}")
@@ -134,11 +145,20 @@ class APIManager:
         if not pat:
             raise ValueError(f"PAT {pat_id} not found")
 
-        api = GitHubAPI(token=pat["token"], base_url=config.github_api_base)
+        if pat.get("auth_mode") == "github_app":
+            api = GitHubAPI(app_auth=github_app_auth, base_url=config.github_api_base)
+        else:
+            api = GitHubAPI(token=pat["token"], base_url=config.github_api_base)
 
-        # Validate token
+        # Validate and discover
         try:
-            user = await api.discover_user()
+            if pat.get("auth_mode") == "github_app":
+                app_info = await api.discover_app_installation()
+                user = app_info["user"]
+                orgs = app_info["orgs"]
+            else:
+                user = await api.discover_user()
+                orgs = await api.discover_orgs()
         except Exception:
             await api.close()
             raise ValueError("Invalid token: could not authenticate with GitHub")
@@ -154,11 +174,6 @@ class APIManager:
         )
 
         # Discover orgs
-        try:
-            orgs = await api.discover_orgs()
-        except Exception:
-            orgs = []
-
         org_logins = [o["login"] for o in orgs]
         pat_manager.update(pat_id, orgs=org_logins)
 

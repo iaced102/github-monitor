@@ -22,6 +22,8 @@ RUN apt-get update && apt-get install -y curl ca-certificates && \
 
 WORKDIR /app
 
+ENV PYTHONUNBUFFERED=1
+
 # Install Python dependencies
 COPY backend/requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt

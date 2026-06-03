@@ -252,6 +252,18 @@ class Database:
         ).fetchall()
         return [r["org"] for r in rows]
 
+    def cleanup_old_daily(self, retention_days: int = 180):
+        """Remove daily data older than retention_days. Default: 6 months."""
+        from datetime import date, timedelta
+        cutoff = (date.today() - timedelta(days=retention_days)).isoformat()
+        deleted = self._conn.execute(
+            "DELETE FROM data_daily WHERE day < ?", (cutoff,)
+        ).rowcount
+        self._conn.commit()
+        if deleted:
+            print(f"[Database] Cleaned up {deleted} daily rows older than {cutoff}")
+        return deleted
+
     # ------------------------------------------------------------------ #
     # Recommendations                                                      #
     # ------------------------------------------------------------------ #

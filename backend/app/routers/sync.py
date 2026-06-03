@@ -13,6 +13,7 @@ from starlette.responses import StreamingResponse
 
 from ..services.api_manager import api_manager
 from ..services.data_collector import DataCollector, data_collector, create_session_collector
+from ..services.github_app_auth import github_app_auth
 from ..services.pat_manager import pat_manager
 from ..services.session_manager import SESSIONS_DIR
 from ..services.sync_manager import sync_manager
@@ -104,6 +105,8 @@ async def sync_org(org: str, session_id: str | None = Query(default=None)):
 @router.get("/sync/status")
 async def sync_status():
     """Get current discovery and sync status."""
+    from datetime import date, timedelta
+
     all_orgs = api_manager.get_all_orgs()
     orgs_with_data = []
     for org_info in all_orgs:
@@ -124,6 +127,23 @@ async def sync_status():
             "has_premium_requests": has_premium_requests,
         })
 
+    # Data freshness: check latest day in DB
+    latest_usage_day = None
+    all_scope_names = [o["login"] for o in all_orgs]
+    for ent in api_manager.get_all_enterprises():
+        slug = ent.get("slug", "")
+        if slug and slug not in all_scope_names:
+            all_scope_names.append(slug)
+    for scope in all_scope_names:
+        usage = data_collector.load_latest("usage", scope)
+        if usage and usage.get("report_end_day"):
+            day = usage["report_end_day"]
+            if not latest_usage_day or day > latest_usage_day:
+                latest_usage_day = day
+
+    today = date.today().isoformat()
+    yesterday = (date.today() - timedelta(days=1)).isoformat()
+
     users = api_manager.get_discovered_users()
     user_logins = [u.get("login", "") for u in users.values()]
 
@@ -132,24 +152,28 @@ async def sync_status():
         "total_orgs": len(all_orgs),
         "orgs": orgs_with_data,
         "is_syncing": sync_manager.is_syncing,
+        "data_freshness": {
+            "latest_data_day": latest_usage_day,
+            "today": today,
+            "delay_note": "GitHub reports are generated ~24h after activity. Data for yesterday/today may not be available yet.",
+            "data_current": latest_usage_day == yesterday or latest_usage_day == today if latest_usage_day else False,
+        },
     }
 
 
 @router.post("/settings/reload-pat")
 async def reload_pat(body: ReloadPatRequest):
-    """Reload the GitHub PAT without restarting the server.
+    """Reload the GitHub authentication without restarting the server.
 
-    If a token is provided, updates GITHUB_PAT in the runtime environment.
-    Then rebuilds the API manager (re-creates httpx clients with the new token)
-    and re-discovers orgs/enterprises.
-
-    Use this after updating GITHUB_PAT in .env (then docker-compose restart),
-    OR pass the new token directly to apply immediately without restart.
+    For GitHub App mode: invalidates the cached installation token and rebuilds.
+    For PAT mode: if a token is provided, updates GITHUB_PAT in the runtime environment.
     """
-    if body.token.strip():
+    if pat_manager.auth_mode == "github_app":
+        github_app_auth.invalidate()
+        pat_manager._app_pat_meta = None
+    elif body.token.strip():
         os.environ["GITHUB_PAT"] = body.token.strip()
-        # Clear cached PAT metadata so it's rebuilt with the new token
-        pat_manager._env_pat_meta = None
+        pat_manager._pat_meta = None
 
     try:
         await api_manager.rebuild()
@@ -163,7 +187,8 @@ async def reload_pat(body: ReloadPatRequest):
 
     return {
         "ok": True,
-        "message": "PAT reloaded successfully. Run Sync Data to refresh seat/usage data.",
+        "auth_mode": pat_manager.auth_mode,
+        "message": "Auth reloaded successfully. Run Sync Data to refresh seat/usage data.",
         "authenticated_as": user_logins,
         "orgs_discovered": orgs,
         "enterprises_discovered": enterprises,

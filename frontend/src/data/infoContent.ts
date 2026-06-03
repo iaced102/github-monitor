@@ -48,7 +48,7 @@ export const INFO: Record<string, InfoContent> = {
     metrics: [
       { name: "Công thức", desc: "Inactive Seats × Đơn giá/seat", example: "15 inactive × $19 = $285/tháng lãng phí" },
     ],
-    tip: "Thu hồi inactive seats (không dùng > 30 ngày) để giảm waste ngay lập tức.",
+    tip: "Thu hồi inactive seats (không dùng trong chu kỳ billing) để giảm waste ngay lập tức.",
   },
   kpi_chats: {
     title: "Tổng số Chat",
@@ -626,7 +626,7 @@ export const INFO: Record<string, InfoContent> = {
     description: "Số người dùng đã thực hiện ít nhất 1 premium AI request (chat, code gen với model AI) trong kỳ báo cáo.",
     metrics: [
       { name: "Nguồn dữ liệu", desc: "Premium request usage API — chỉ đếm user dùng AI model", example: "27 users" },
-      { name: "Khác với sidebar", desc: "Sidebar dùng Seats API (last_activity_at ≤ 30 ngày) → số cao hơn vì đếm cả code completion", example: "Sidebar: 38, Monitor: 27" },
+      { name: "Khác với sidebar", desc: "Sidebar dùng billing cycle (hoạt động trong tháng) → số có thể khác vì đếm theo chu kỳ thanh toán", example: "Sidebar: 38, Monitor: 27" },
     ],
     tip: "Sự chênh lệch giữa các tab là bình thường vì mỗi tab dùng nguồn dữ liệu khác nhau. Monitor chỉ đếm user dùng premium AI models.",
   },

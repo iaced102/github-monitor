@@ -49,7 +49,9 @@ export interface Overview {
   annual_waste: number;
   plan_breakdown?: { plan: string; seats: number; active: number; inactive: number; price_per_seat: number; monthly_cost: number }[];
   pending_cancellation?: number;
-  active_window_days?: number;
+  active_window?: string;
+  billing_cycle_start?: string;
+  billing_cycle_end?: string;
 }
 
 export interface Recommendation {

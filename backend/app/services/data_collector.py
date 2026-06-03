@@ -118,15 +118,18 @@ class DataCollector:
         """Reconstruct the original usage report format from per-day rows."""
         if not rows:
             return None
-        first = rows[0]["data"]
-        meta_keys = ("report_start_day", "report_end_day", "enterprise_id", "created_at")
-        meta = {k: first.get(k) for k in meta_keys if k in first}
         day_totals = [r["data"] for r in rows]
+        start_day = rows[0]["day"]
+        end_day = rows[-1]["day"]
         return {
-            "records": [{**meta, "day_totals": day_totals}],
+            "records": [{
+                "report_start_day": start_day,
+                "report_end_day": end_day,
+                "day_totals": day_totals,
+            }],
             "total_records": len(day_totals),
-            "report_start_day": rows[0]["day"],
-            "report_end_day": rows[-1]["day"],
+            "report_start_day": start_day,
+            "report_end_day": end_day,
             "download_links_count": 0,
         }
 
@@ -158,6 +161,28 @@ class DataCollector:
             result = self._db.load_latest_snapshot(category, org)
             if result is not None:
                 return result
+
+    def load_daily_usage(self, org: str, start_day: str | None = None, end_day: str | None = None) -> dict | None:
+        """Load usage data filtered by date range. Used for billing cycle queries."""
+        if self._db is not None and self._db.has_daily_data("usage", org):
+            rows = self._db.load_daily("usage", org, start_day=start_day, end_day=end_day)
+            return self._reconstruct_usage_from_daily(rows)
+        data = self.load_latest("usage", org)
+        if data and start_day:
+            records = data.get("records", [])
+            for rec in records:
+                day_totals = rec.get("day_totals", [])
+                rec["day_totals"] = [dt for dt in day_totals
+                                     if (not start_day or dt.get("day", "") >= start_day)
+                                     and (not end_day or dt.get("day", "") <= end_day)]
+        return data
+
+    def load_daily_usage_users(self, org: str, start_day: str | None = None, end_day: str | None = None) -> dict | None:
+        """Load usage_users data filtered by date range."""
+        if self._db is not None and self._db.has_daily_data("usage_users", org):
+            rows = self._db.load_daily("usage_users", org, start_day=start_day, end_day=end_day)
+            return self._reconstruct_usage_users_from_daily(rows)
+        return self.load_latest("usage_users", org)
 
         # JSON file path (session fallback or when DB not yet ready)
         filepath = self._data_dir / category / f"{org}_latest.json"
@@ -461,124 +486,169 @@ class DataCollector:
                     log_fn("error", f"  {slug}: cost centers error - {e}")
 
             # Billing (use enterprise slug as org key so existing tools pick it up)
-            try:
-                billing = await api.get_enterprise_copilot_billing(slug)
-                if billing:
-                    self._save_json("billing", slug, billing)
-                    summary["synced"].append(f"billing/{slug}")
-                    if log_fn:
-                        log_fn("info", f"  {slug}: billing synced")
-            except Exception as e:
-                summary["errors"].append(f"billing/{slug}: {e}")
-                if log_fn:
-                    log_fn("error", f"  {slug}: billing error - {e}")
+            # Incremental fetch: only get days not yet in DB + retry yesterday (report delay ~24h)
+            from datetime import datetime, timezone, timedelta, date
 
-            # Seats
-            try:
-                seats = await api.get_enterprise_copilot_seats(slug)
-                if seats and seats.get("_permission_error"):
-                    summary["errors"].append(f"seats/{slug}: {seats['message']}")
-                    if log_fn:
-                        log_fn("error", f"  {slug}: seats - {seats['message']}")
-                elif seats:
-                    self._save_json("seats", slug, seats)
-                    summary["synced"].append(f"seats/{slug} ({len(seats.get('seats', []))} total)")
-                    if log_fn:
-                        log_fn("info", f"  {slug}: seats synced ({len(seats.get('seats', []))} total)")
-            except Exception as e:
-                summary["errors"].append(f"seats/{slug}: {e}")
-                if log_fn:
-                    log_fn("error", f"  {slug}: seats error - {e}")
+            today = date.today()
+            cycle_start = today.replace(day=1)
+            days_in_cycle = [(cycle_start + timedelta(days=i)).isoformat()
+                            for i in range((today - cycle_start).days + 1)]
 
-            # Usage report (28-day)
+            # Also include last 3 days of previous month (catch end-of-month miss due to report delay)
+            prev_month_end = cycle_start - timedelta(days=1)
+            prev_month_catchup = [(prev_month_end - timedelta(days=i)).isoformat() for i in range(2, -1, -1)]
+
+            # Determine which days need fetching (not yet in DB, or yesterday/today for retry)
+            yesterday = (today - timedelta(days=1)).isoformat()
+            today_str = today.isoformat()
+
+            existing_usage_days = set()
+            existing_users_days = set()
+            if self._db:
+                for row in self._db.load_daily("usage", slug):
+                    existing_usage_days.add(row["day"])
+                for row in self._db.load_daily("usage_users", slug):
+                    existing_users_days.add(row["day"])
+
+            all_target_days = sorted(set(prev_month_catchup + days_in_cycle))
+            usage_fetch_days = [d for d in all_target_days
+                               if d not in existing_usage_days or d in (yesterday, today_str)]
+            users_fetch_days = [d for d in all_target_days
+                               if d not in existing_users_days or d in (yesterday, today_str)]
+
+            # Enterprise usage (incremental)
             try:
-                usage = await api.get_enterprise_usage_report_28day(slug)
-                if usage:
-                    self._save_json("usage", slug, usage)
-                    n = usage.get("total_records", 0)
-                    summary["synced"].append(f"usage/{slug} ({n} records)")
-                    if log_fn:
-                        log_fn("info", f"  {slug}: usage report synced ({n} records)")
+                fetched_usage = 0
+                for day in usage_fetch_days:
+                    day_report = await api.get_enterprise_usage_report_1day(slug, day)
+                    if day_report and day_report.get("records"):
+                        for rec in day_report["records"]:
+                            self._db.save_daily("usage", slug, rec.get("day", day), rec)
+                            fetched_usage += 1
+                if fetched_usage and log_fn:
+                    log_fn("info", f"  {slug}: usage fetched {fetched_usage} new day(s)")
             except Exception as e:
                 summary["errors"].append(f"usage/{slug}: {e}")
                 if log_fn:
-                    log_fn("error", f"  {slug}: usage report error - {e}")
+                    log_fn("error", f"  {slug}: usage error - {e}")
 
-            # Usage users report (28-day)
+            # Users usage (incremental)
             try:
-                users_usage = await api.get_enterprise_users_usage_report_28day(slug)
-                if users_usage:
-                    self._save_json("usage_users", slug, users_usage)
-                    n = users_usage.get("total_records", 0)
-                    summary["synced"].append(f"usage_users/{slug} ({n} records)")
-                    if log_fn:
-                        log_fn("info", f"  {slug}: usage users report synced ({n} records)")
+                fetched_users = 0
+                for day in users_fetch_days:
+                    day_report = await api.get_enterprise_users_usage_report_1day(slug, day)
+                    if day_report and day_report.get("records"):
+                        by_day: dict[str, list] = {}
+                        for rec in day_report["records"]:
+                            d = rec.get("day", day)
+                            by_day.setdefault(d, []).append(rec)
+                        for d, recs in by_day.items():
+                            self._db.save_daily("usage_users", slug, d, recs)
+                            fetched_users += 1
+                if fetched_users and log_fn:
+                    log_fn("info", f"  {slug}: usage users fetched {fetched_users} new day(s)")
             except Exception as e:
                 summary["errors"].append(f"usage_users/{slug}: {e}")
                 if log_fn:
-                    log_fn("error", f"  {slug}: usage users report error - {e}")
+                    log_fn("error", f"  {slug}: usage users error - {e}")
 
-            # Metrics (legacy)
+            # Load full billing cycle data from DB for seats derivation and metrics
+            usage = None
+            users_usage = None
+            if self._db:
+                usage_rows = self._db.load_daily("usage", slug,
+                                                 start_day=days_in_cycle[0], end_day=days_in_cycle[-1])
+                if usage_rows:
+                    usage = self._reconstruct_usage_from_daily(usage_rows)
+                    summary["synced"].append(f"usage/{slug} ({len(usage_rows)} days in cycle)")
+
+                users_rows = self._db.load_daily("usage_users", slug,
+                                                 start_day=days_in_cycle[0], end_day=days_in_cycle[-1])
+                if users_rows:
+                    users_usage = self._reconstruct_usage_users_from_daily(users_rows)
+                    summary["synced"].append(f"usage_users/{slug} ({len(users_rows)} days in cycle)")
+
+            # Derive synthetic seats: team members = licensed, billing cycle usage = active
+            # Get all licensed users from enterprise teams
+            all_licensed_users: set[str] = set()
             try:
-                metrics = await api.get_enterprise_copilot_metrics(slug)
-                if metrics:
-                    self._save_json("metrics", slug, metrics)
-                    summary["synced"].append(f"metrics/{slug} ({len(metrics)} entries)")
-                    if log_fn:
-                        log_fn("info", f"  {slug}: metrics synced ({len(metrics)} entries)")
-            except Exception as e:
-                summary["errors"].append(f"metrics/{slug}: {e}")
-                if log_fn:
-                    log_fn("error", f"  {slug}: metrics error - {e}")
+                teams = await api.list_enterprise_teams(slug)
+                if teams:
+                    for team in teams:
+                        team_id = team.get("id", 0)
+                        if not team_id:
+                            continue
+                        members_raw = await api.get_enterprise_team_members(slug, team_id)
+                        for m in members_raw:
+                            login = m.get("login", "").strip()
+                            if login:
+                                all_licensed_users.add(login)
+            except Exception:
+                pass
 
-            # Premium requests
-            try:
-                premium = await api.get_enterprise_premium_request_usage(slug)
-                if premium:
-                    self._save_json("premium_requests", slug, premium)
-                    n = len(premium.get("usageItems", []))
-                    summary["synced"].append(f"premium_requests/{slug} ({n} items)")
-                    if log_fn:
-                        log_fn("info", f"  {slug}: premium requests synced ({n} items)")
-            except Exception as e:
-                summary["errors"].append(f"premium_requests/{slug}: {e}")
-                if log_fn:
-                    log_fn("error", f"  {slug}: premium requests error - {e}")
+            # Determine active users from billing cycle usage reports
+            active_users: dict[str, str] = {}  # login -> last_day
+            if users_usage and users_usage.get("records"):
+                for rec in users_usage["records"]:
+                    login = rec.get("user_login", "")
+                    if not login:
+                        continue
+                    day = rec.get("day", "")
+                    has_activity = rec.get("user_initiated_interaction_count", 0) > 0
+                    if has_activity:
+                        if login not in active_users or day > active_users[login]:
+                            active_users[login] = day
+                    all_licensed_users.add(login)
 
-            # Per-user premium requests (fetches each seat holder individually in parallel)
-            try:
-                seats_data = self.load_latest("seats", slug)
-                seat_list = seats_data.get("seats", []) if seats_data else []
-                logins = [s.get("assignee", {}).get("login") for s in seat_list if s.get("assignee", {}).get("login")]
-                if logins:
-                    import asyncio as _asyncio
-                    async def _fetch_user_prem(login: str):
-                        try:
-                            result = await api.get_enterprise_premium_request_usage(slug, user=login)
-                            if result and not result.get("_error"):
-                                total = sum(i.get("grossQuantity", 0) for i in result.get("usageItems", []))
-                                top_item = max(result.get("usageItems", [{"model": ""}]), key=lambda x: x.get("grossQuantity", 0), default={"model": ""})
-                                return login, {"gross_qty": total, "top_model": top_item.get("model", ""), "items": result.get("usageItems", [])}
-                        except Exception:
-                            pass
-                        return login, None
+            seats_list = []
+            active_count = 0
+            for login in sorted(all_licensed_users):
+                last_day = active_users.get(login)
+                last_activity_at = f"{last_day}T23:59:59Z" if last_day else None
+                is_active = login in active_users
+                if is_active:
+                    active_count += 1
+                seats_list.append({
+                    "assignee": {"login": login, "avatar_url": "", "type": "User"},
+                    "last_activity_at": last_activity_at,
+                    "plan_type": "enterprise",
+                    "pending_cancellation_date": None,
+                })
 
-                    pairs = await _asyncio.gather(*[_fetch_user_prem(l) for l in logins])
-                    period = premium.get("timePeriod", {}) if premium else {}
-                    users_prem = {login: data for login, data in pairs if data is not None}
-                    self._save_json("premium_requests_users", slug, {
-                        "enterprise": slug,
-                        "period": period,
-                        "users": users_prem,
-                        "total_users": len(users_prem),
-                    })
-                    summary["synced"].append(f"premium_requests_users/{slug} ({len(users_prem)} users)")
-                    if log_fn:
-                        log_fn("info", f"  {slug}: per-user premium requests synced ({len(users_prem)} users)")
-            except Exception as e:
-                summary["errors"].append(f"premium_requests_users/{slug}: {e}")
+            if seats_list:
+                seats_data = {"total_seats": len(seats_list), "seats": seats_list}
+                self._save_json("seats", slug, seats_data)
+                summary["synced"].append(f"seats/{slug} ({len(seats_list)} total)")
                 if log_fn:
-                    log_fn("error", f"  {slug}: per-user premium requests error - {e}")
+                    log_fn("info", f"  {slug}: seats derived ({len(seats_list)} licensed, {active_count} active in billing cycle)")
+
+                # Synthetic billing
+                billing_data = {
+                    "seat_breakdown": {
+                        "total": len(seats_list),
+                        "active_this_cycle": active_count,
+                    },
+                    "_detected_price_per_seat": 39.0,
+                    "_detected_plan_type": "enterprise",
+                    "billing_cycle_start": days_in_cycle[0],
+                    "billing_cycle_end": today.isoformat(),
+                }
+                self._save_json("billing", slug, billing_data)
+                summary["synced"].append(f"billing/{slug}")
+                if log_fn:
+                    log_fn("info", f"  {slug}: billing derived ({len(seats_list)} seats, ${len(seats_list) * 39}/mo)")
+
+            # Metrics from enterprise usage report
+            if usage and usage.get("records"):
+                metrics_list = []
+                for rec in usage["records"]:
+                    for day_total in rec.get("day_totals", []):
+                        metrics_list.append(day_total)
+                if metrics_list:
+                    self._save_json("metrics", slug, metrics_list)
+                    summary["synced"].append(f"metrics/{slug} ({len(metrics_list)} entries)")
+                    if log_fn:
+                        log_fn("info", f"  {slug}: metrics synced ({len(metrics_list)} entries)")
 
         return summary
 

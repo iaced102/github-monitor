@@ -3,29 +3,60 @@ GitHub REST API client with auto-discovery.
 Each instance is bound to a specific PAT token.
 """
 
+import asyncio
 import json
 
 import httpx
 
 from ..config import COPILOT_PRICING
 
+_MAX_RETRIES = 3
+_RETRY_BACKOFF = [2, 5, 10]
+
 
 class GitHubAPI:
-    """GitHub REST API client bound to a specific PAT."""
+    """GitHub REST API client bound to a specific PAT or GitHub App."""
 
-    def __init__(self, token: str, base_url: str = "https://api.github.com"):
-        self._token = token
+    def __init__(self, token: str | None = None, base_url: str = "https://api.github.com", app_auth=None):
+        self._static_token = token
+        self._app_auth = app_auth
         self._base_url = base_url
         self._client: httpx.AsyncClient | None = None
+        self._current_token: str | None = token
 
-    @property
-    def client(self) -> httpx.AsyncClient:
-        if self._client is None or self._client.is_closed:
+    async def _get_token(self) -> str:
+        if self._app_auth:
+            return await self._app_auth.get_token()
+        return self._static_token
+
+    async def _ensure_client(self) -> httpx.AsyncClient:
+        token = await self._get_token()
+        if self._client is None or self._client.is_closed or token != self._current_token:
+            if self._client and not self._client.is_closed:
+                await self._client.aclose()
+            self._current_token = token
             self._client = httpx.AsyncClient(
                 base_url=self._base_url,
                 headers={
                     "Accept": "application/vnd.github+json",
-                    "Authorization": f"Bearer {self._token}",
+                    "Authorization": f"Bearer {token}",
+                    "X-GitHub-Api-Version": "2022-11-28",
+                },
+                timeout=30.0,
+            )
+        return self._client
+
+    @property
+    def client(self) -> httpx.AsyncClient:
+        if self._app_auth:
+            raise RuntimeError("Use _ensure_client() for GitHub App auth — self.client is not supported")
+        if self._client is None or self._client.is_closed:
+            token = self._static_token or ""
+            self._client = httpx.AsyncClient(
+                base_url=self._base_url,
+                headers={
+                    "Accept": "application/vnd.github+json",
+                    "Authorization": f"Bearer {token}",
                     "X-GitHub-Api-Version": "2022-11-28",
                 },
                 timeout=30.0,
@@ -36,13 +67,62 @@ class GitHubAPI:
         if self._client and not self._client.is_closed:
             await self._client.aclose()
 
+    async def _request_with_retry(self, method: str, path: str, **kwargs) -> httpx.Response:
+        """Make HTTP request with retry on 429/5xx."""
+        for attempt in range(_MAX_RETRIES):
+            client = await self._ensure_client()
+            resp = await getattr(client, method)(path, **kwargs)
+            if resp.status_code == 429 or resp.status_code >= 500:
+                if attempt < _MAX_RETRIES - 1:
+                    wait = _RETRY_BACKOFF[attempt]
+                    retry_after = resp.headers.get("Retry-After")
+                    if retry_after:
+                        try:
+                            wait = int(retry_after)
+                        except ValueError:
+                            pass
+                    await asyncio.sleep(wait)
+                    continue
+            return resp
+        return resp
+
+    # =========================================================================
+    # App Installation Discovery
+    # =========================================================================
+
+    async def discover_app_installation(self) -> dict:
+        """Discover orgs accessible to this GitHub App installation.
+        Uses GET /installation/repositories to find orgs from installed repos."""
+        resp = await (await self._ensure_client()).get(
+            "/installation/repositories", params={"per_page": 100}
+        )
+        resp.raise_for_status()
+        data = resp.json()
+
+        orgs_seen = {}
+        for repo in data.get("repositories", []):
+            owner = repo.get("owner", {})
+            if owner.get("type") == "Organization":
+                login = owner["login"]
+                if login not in orgs_seen:
+                    orgs_seen[login] = {
+                        "login": login,
+                        "id": owner.get("id"),
+                        "avatar_url": owner.get("avatar_url", ""),
+                    }
+
+        return {
+            "user": {"login": "github-app", "avatar_url": ""},
+            "orgs": list(orgs_seen.values()),
+        }
+
     # =========================================================================
     # Auto-Discovery
     # =========================================================================
 
     async def discover_user(self) -> dict:
         """Discover the authenticated user from PAT."""
-        resp = await self.client.get("/user")
+        resp = await (await self._ensure_client()).get("/user")
         resp.raise_for_status()
         return resp.json()
 
@@ -51,7 +131,7 @@ class GitHubAPI:
         orgs = []
         page = 1
         while True:
-            resp = await self.client.get("/user/orgs", params={"per_page": 100, "page": page})
+            resp = await (await self._ensure_client()).get("/user/orgs", params={"per_page": 100, "page": page})
             resp.raise_for_status()
             batch = resp.json()
             if not batch:
@@ -62,7 +142,7 @@ class GitHubAPI:
 
     async def get_org_detail(self, org: str) -> dict:
         """Get detailed info for a specific organization."""
-        resp = await self.client.get(f"/orgs/{org}")
+        resp = await (await self._ensure_client()).get(f"/orgs/{org}")
         resp.raise_for_status()
         return resp.json()
 
@@ -75,7 +155,7 @@ class GitHubAPI:
             memberships = []
             page = 1
             while True:
-                resp = await self.client.get(
+                resp = await (await self._ensure_client()).get(
                     "/user/enterprise-memberships",
                     params={"per_page": 100, "page": page},
                 )
@@ -111,7 +191,7 @@ class GitHubAPI:
             members = []
             page = 1
             while True:
-                resp = await self.client.get(
+                resp = await (await self._ensure_client()).get(
                     f"/orgs/{org}/members",
                     params={"per_page": 100, "page": page},
                 )
@@ -139,7 +219,7 @@ class GitHubAPI:
             teams = []
             page = 1
             while True:
-                resp = await self.client.get(
+                resp = await (await self._ensure_client()).get(
                     f"/orgs/{org}/teams",
                     params={"per_page": 100, "page": page},
                 )
@@ -167,7 +247,7 @@ class GitHubAPI:
             teams = []
             page = 1
             while True:
-                resp = await self.client.get(
+                resp = await (await self._ensure_client()).get(
                     f"/enterprises/{enterprise}/teams",
                     params={"per_page": 100, "page": page},
                 )
@@ -196,7 +276,7 @@ class GitHubAPI:
             members = []
             page = 1
             while True:
-                resp = await self.client.get(
+                resp = await (await self._ensure_client()).get(
                     f"/enterprises/{enterprise}/teams/{team_id}/memberships",
                     params={"per_page": 100, "page": page},
                 )
@@ -225,7 +305,7 @@ class GitHubAPI:
             members = []
             page = 1
             while True:
-                resp = await self.client.get(
+                resp = await (await self._ensure_client()).get(
                     f"/orgs/{org}/teams/{team_slug}/members",
                     params={"per_page": 100, "page": page},
                 )
@@ -257,7 +337,7 @@ class GitHubAPI:
         for state in ("active", "archived"):
             page = 1
             while True:
-                resp = await self.client.get(
+                resp = await (await self._ensure_client()).get(
                     f"/enterprises/{enterprise}/settings/billing/cost-centers",
                     params={"per_page": 100, "page": page, "state": state},
                     headers=_headers,
@@ -296,7 +376,7 @@ class GitHubAPI:
         Also auto-detects plan type and pricing.
         """
         try:
-            resp = await self.client.get(f"/orgs/{org}/copilot/billing")
+            resp = await (await self._ensure_client()).get(f"/orgs/{org}/copilot/billing")
             if resp.status_code == 404:
                 return None
             if resp.status_code == 403:
@@ -331,7 +411,7 @@ class GitHubAPI:
             page = 1
             total = 0
             while True:
-                resp = await self.client.get(
+                resp = await (await self._ensure_client()).get(
                     f"/orgs/{org}/copilot/billing/seats",
                     params={"per_page": 100, "page": page},
                 )
@@ -388,7 +468,7 @@ class GitHubAPI:
                 params["since"] = since
             if until:
                 params["until"] = until
-            resp = await self.client.get(f"/orgs/{org}/copilot/metrics", params=params)
+            resp = await (await self._ensure_client()).get(f"/orgs/{org}/copilot/metrics", params=params)
             if resp.status_code == 404:
                 return None
             resp.raise_for_status()
@@ -433,7 +513,7 @@ class GitHubAPI:
                 params["model"] = model
             if product:
                 params["product"] = product
-            resp = await self.client.get(
+            resp = await (await self._ensure_client()).get(
                 f"/organizations/{org}/settings/billing/premium_request/usage",
                 params=params,
             )
@@ -485,7 +565,7 @@ class GitHubAPI:
         Returns dict with 'download_links', 'report_day' or 'report_start_day'/'report_end_day'.
         """
         try:
-            resp = await self.client.get(path, params=params or {})
+            resp = await self._request_with_retry("get", path, params=params or {})
             if resp.status_code in (404, 403):
                 return None
             resp.raise_for_status()
@@ -635,7 +715,7 @@ class GitHubAPI:
         API: GET /enterprises/{enterprise}/copilot/billing
         """
         try:
-            resp = await self.client.get(f"/enterprises/{enterprise}/copilot/billing")
+            resp = await (await self._ensure_client()).get(f"/enterprises/{enterprise}/copilot/billing")
             if resp.status_code == 404:
                 return None
             if resp.status_code == 403:
@@ -662,7 +742,7 @@ class GitHubAPI:
             page = 1
             total = 0
             while True:
-                resp = await self.client.get(
+                resp = await (await self._ensure_client()).get(
                     f"/enterprises/{enterprise}/copilot/billing/seats",
                     params={"per_page": 100, "page": page},
                 )
@@ -710,7 +790,7 @@ class GitHubAPI:
         API: GET /enterprises/{enterprise}/copilot/metrics
         """
         try:
-            resp = await self.client.get(f"/enterprises/{enterprise}/copilot/metrics")
+            resp = await (await self._ensure_client()).get(f"/enterprises/{enterprise}/copilot/metrics")
             if resp.status_code in (404, 403):
                 return None
             resp.raise_for_status()
@@ -752,7 +832,7 @@ class GitHubAPI:
                 params["product"] = product
             if cost_center_id:
                 params["cost_center_id"] = cost_center_id
-            resp = await self.client.get(
+            resp = await (await self._ensure_client()).get(
                 f"/enterprises/{enterprise}/settings/billing/premium_request/usage",
                 params=params,
             )
