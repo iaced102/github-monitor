@@ -59,6 +59,13 @@ async def lifespan(app: FastAPI):
     data_collector.set_api_manager(api_manager)
     copilot_engine.set_api_manager(api_manager)
 
+    # Set billing PAT if available (for real seats/credits data)
+    import os
+    billing_pat = os.environ.get("GITHUB_BILLING_PAT", "").strip()
+    if billing_pat:
+        data_collector.set_billing_pat(billing_pat)
+        print("[OctoFinance] Billing PAT configured for seats/credits sync")
+
     # Read settings
     settings = pat_manager.get_settings()
 

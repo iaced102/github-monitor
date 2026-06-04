@@ -1015,11 +1015,10 @@ export function CsvDashboard({ refreshKey, tab }: Props) {
   const dateTo = ui.csvDashDateTo;
   const setDateTo = useCallback((v: string) => ui.patch({ csvDashDateTo: v }), [ui.patch]);
 
-  // Default date range: last 28 days (used as placeholder when no data loaded)
+  // Default date range: billing cycle (1st of month → today)
   const defaultDateRange = useMemo(() => {
     const to = new Date();
-    const from = new Date();
-    from.setDate(from.getDate() - 27);
+    const from = new Date(to.getFullYear(), to.getMonth(), 1);
     const fmt = (d: Date) => d.toISOString().slice(0, 10);
     return { start: fmt(from), end: fmt(to) };
   }, []);

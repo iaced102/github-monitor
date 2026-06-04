@@ -479,6 +479,7 @@ async def get_dashboard(
         "features": {},  # feature -> enabled/disabled
         "seats": [],  # individual seat records
     }
+    seat_seen_logins: set[str] = set()
     for org_name in selected:
         billing = data_collector.load_latest("billing", org_name)
         if billing:
@@ -486,8 +487,11 @@ async def get_dashboard(
             seat_info["breakdown"]["pending_invitation"] += sb.get("pending_invitation", 0)
             seat_info["breakdown"]["pending_cancellation"] += sb.get("pending_cancellation", 0)
             seat_info["breakdown"]["added_this_cycle"] += sb.get("added_this_cycle", 0)
-            pt = billing.get("_detected_plan_type", billing.get("plan_type", "unknown"))
-            seat_info["plans"][pt] = seat_info["plans"].get(pt, 0) + 1
+            # Plan counts from _plan_counts if available (real billing data)
+            plan_counts = billing.get("_plan_counts")
+            if plan_counts:
+                for plan, count in plan_counts.items():
+                    seat_info["plans"][plan] = seat_info["plans"].get(plan, 0) + count
             for feat in ("ide_chat", "cli", "platform_chat", "public_code_suggestions"):
                 val = billing.get(feat, "")
                 if val:
@@ -507,6 +511,10 @@ async def get_dashboard(
             for s in seats_data.get("seats", []):
                 assignee = s.get("assignee", {})
                 login = assignee.get("login", "")
+                # Dedup by login (user may appear with both enterprise + business seats)
+                if not login or login.lower() in seat_seen_logins:
+                    continue
+                seat_seen_logins.add(login.lower())
                 # Apply group scope filter
                 if scope_users is not None and login.lower() not in scope_users:
                     continue
@@ -625,7 +633,7 @@ async def get_dashboard(
         date_start = ""
         date_end = ""
         for org_name in selected:
-            uu = data_collector.load_latest("usage_users", org_name)
+            uu = data_collector.load_daily_usage_users(org_name, start_day=cycle_start_str, end_day=cycle_end_str)
             if not uu:
                 continue
             for rec in (uu if isinstance(uu, list) else uu.get("records", [uu])):
@@ -734,7 +742,7 @@ async def get_dashboard(
         "days_active": 0, "used_agent": False, "used_chat": False,
     })
     for org_name in selected:
-        uu = data_collector.load_latest("usage_users", org_name)
+        uu = data_collector.load_daily_usage_users(org_name, start_day=cycle_start_str, end_day=cycle_end_str)
         if not uu:
             continue
         for rec in uu.get("records", []):
@@ -812,7 +820,7 @@ async def get_dashboard(
         lambda: defaultdict(lambda: {"interactions": 0, "code_gen": 0, "code_accept": 0, "loc_suggested": 0, "loc_accepted": 0})
     )
     for org_name in selected:
-        uu = data_collector.load_latest("usage_users", org_name)
+        uu = data_collector.load_daily_usage_users(org_name, start_day=cycle_start_str, end_day=cycle_end_str)
         if not uu:
             continue
         for rec in (uu if isinstance(uu, list) else uu.get("records", [uu])):
@@ -867,8 +875,10 @@ async def get_dashboard(
 # ---------------------------------------------------------------------------
 
 def _build_api_usage_section(scope_users: set[str] | None = None) -> dict:
-    """Build per-user activity report from API-synced usage_users data."""
+    """Build per-user activity report from API-synced usage_users data (billing cycle)."""
     all_scope_names = _get_all_scope_names()
+    cycle_start_str = date.today().replace(day=1).isoformat()
+    cycle_end_str = date.today().isoformat()
     user_agg: dict[str, dict] = defaultdict(lambda: {
         "interactions": 0, "code_gen": 0, "code_accept": 0,
         "loc_suggested": 0, "loc_accepted": 0, "days_active": 0,
@@ -878,7 +888,7 @@ def _build_api_usage_section(scope_users: set[str] | None = None) -> dict:
     date_end = ""
 
     for scope in all_scope_names:
-        uu = data_collector.load_latest("usage_users", scope)
+        uu = data_collector.load_daily_usage_users(scope, start_day=cycle_start_str, end_day=cycle_end_str)
         if not uu:
             continue
         for rec in uu.get("records", []):
@@ -978,13 +988,15 @@ def _build_org_billing_models(all_scope_names: list[str]) -> dict:
 
 
 def _build_api_premium_section(scope_users: set[str] | None = None) -> dict:
-    """Build model usage stats from API-synced data.
+    """Build model usage stats from API-synced data (billing cycle).
 
     When scope_users is provided, returns group-level activity data PLUS
     org-level billing data as context (billing API has no per-user breakdown).
     Otherwise tries premium_requests billing first, then totals_by_model_feature.
     """
     all_scope_names = _get_all_scope_names()
+    cycle_start_str = date.today().replace(day=1).isoformat()
+    cycle_end_str = date.today().isoformat()
 
     # When group scope is active, build per-user activity data for the group
     # and also include org-level billing data as context
@@ -993,7 +1005,7 @@ def _build_api_premium_section(scope_users: set[str] | None = None) -> dict:
             "interactions": 0, "code_gen": 0, "code_accept": 0,
         })
         for scope in all_scope_names:
-            uu = data_collector.load_latest("usage_users", scope)
+            uu = data_collector.load_daily_usage_users(scope, start_day=cycle_start_str, end_day=cycle_end_str)
             if not uu:
                 continue
             records = uu if isinstance(uu, list) else uu.get("records", [uu])
@@ -1108,7 +1120,7 @@ def _build_api_premium_section(scope_users: set[str] | None = None) -> dict:
             # Fallback: estimate from usage_users totals_by_model_feature
             user_model_activity: dict[str, dict[str, int]] = defaultdict(lambda: defaultdict(int))
             for scope in all_scope_names:
-                uu = data_collector.load_latest("usage_users", scope)
+                uu = data_collector.load_daily_usage_users(scope, start_day=cycle_start_str, end_day=cycle_end_str)
                 if not uu:
                     continue
                 records = uu if isinstance(uu, list) else uu.get("records", [uu])
@@ -1154,7 +1166,7 @@ def _build_api_premium_section(scope_users: set[str] | None = None) -> dict:
         "interactions": 0, "code_gen": 0, "code_accept": 0,
     })
     for scope in all_scope_names:
-        usage = data_collector.load_latest("usage", scope)
+        usage = data_collector.load_daily_usage(scope, start_day=cycle_start_str, end_day=cycle_end_str)
         if not usage:
             continue
         for rec in usage.get("records", []):
@@ -1549,7 +1561,7 @@ def _load_all_csv_records(csv_type: str = CSV_TYPE_PREMIUM) -> list[dict]:
 
 
 def _aggregate_user_premium_csv(selected_orgs: list[str]) -> dict:
-    """Aggregate per-user premium usage from uploaded CSV files.
+    """Aggregate per-user premium usage from uploaded CSV files (billing cycle only).
 
     Returns structure with per-user breakdown, daily trend, model breakdown, etc.
     """
@@ -1558,8 +1570,12 @@ def _aggregate_user_premium_csv(selected_orgs: list[str]) -> dict:
         return {"has_data": False, "latest_date": None, "users": [], "daily_trend": [],
                 "model_breakdown": [], "org_breakdown": [], "total_requests": 0, "total_cost": 0}
 
-    # Filter by selected orgs
-    filtered = [r for r in records if r.get("organization", "") in selected_orgs]
+    # Filter by selected orgs and billing cycle
+    cycle_start_str = date.today().replace(day=1).isoformat()
+    cycle_end_str = date.today().isoformat()
+    filtered = [r for r in records
+                if r.get("organization", "") in selected_orgs
+                and cycle_start_str <= (r.get("date", "") or "") <= cycle_end_str]
     if not filtered:
         return {"has_data": False, "latest_date": None, "users": [], "daily_trend": [],
                 "model_breakdown": [], "org_breakdown": [], "total_requests": 0, "total_cost": 0}
@@ -1979,20 +1995,23 @@ def _build_seat_fallback(scope: str, scope_users: set[str] | None = None) -> dic
     if not seats_data:
         return {"has_data": False, "users": [], "total_seats": 0}
 
-    # Build activity map from usage_users
+    # Build activity map from usage_users (billing cycle)
+    cycle_start_str = date.today().replace(day=1).isoformat()
+    cycle_end_str = date.today().isoformat()
     activity_map: dict[str, dict] = {}
-    uu = data_collector.load_latest("usage_users", scope)
+    uu = data_collector.load_daily_usage_users(scope, start_day=cycle_start_str, end_day=cycle_end_str)
     if uu:
         for rec in uu.get("records", []):
             login = rec.get("user_login", "")
             if not login:
                 continue
-            if login not in activity_map:
-                activity_map[login] = {
+            login_lower = login.lower()
+            if login_lower not in activity_map:
+                activity_map[login_lower] = {
                     "interactions": 0, "code_gen": 0, "code_accept": 0,
                     "loc_suggested": 0, "days_active": 0,
                 }
-            a = activity_map[login]
+            a = activity_map[login_lower]
             a["interactions"] += rec.get("user_initiated_interaction_count", 0)
             a["code_gen"] += rec.get("code_generation_activity_count", 0)
             a["code_accept"] += rec.get("code_acceptance_activity_count", 0)
@@ -2004,13 +2023,13 @@ def _build_seat_fallback(scope: str, scope_users: set[str] | None = None) -> dic
     for seat in seats_data.get("seats", []):
         assignee = seat.get("assignee", {})
         login = assignee.get("login", "")
-        if not login or login in seen_logins:
+        if not login or login.lower() in seen_logins:
             continue
-        seen_logins.add(login)
+        seen_logins.add(login.lower())
         if scope_users is not None and login.lower() not in scope_users:
             continue
         team = seat.get("assigning_team")
-        act = activity_map.get(login, {})
+        act = activity_map.get(login.lower(), {})
         users.append({
             "login": login,
             "avatar_url": assignee.get("avatar_url", ""),
@@ -2270,8 +2289,10 @@ async def get_usage_monitor(
 
     if scope_users is not None:
         # When group scope is active, build model aggregates from per-user data
+        cycle_start_str = date.today().replace(day=1).isoformat()
+        cycle_end_str = date.today().isoformat()
         for scope in scopes:
-            uu = data_collector.load_latest("usage_users", scope)
+            uu = data_collector.load_daily_usage_users(scope, start_day=cycle_start_str, end_day=cycle_end_str)
             if not uu:
                 continue
             uu_records = uu if isinstance(uu, list) else uu.get("records", [uu])
@@ -2307,8 +2328,10 @@ async def get_usage_monitor(
                     model_lang[(m, lang)]["code_accept"] += lm.get("code_acceptance_activity_count", 0)
                     model_lang[(m, lang)]["loc_suggested"] += lm.get("loc_suggested_to_add_sum", 0)
     else:
+        cycle_start_str = date.today().replace(day=1).isoformat()
+        cycle_end_str = date.today().isoformat()
         for scope in scopes:
-            usage = data_collector.load_latest("usage", scope)
+            usage = data_collector.load_daily_usage(scope, start_day=cycle_start_str, end_day=cycle_end_str)
             if not usage:
                 continue
             records = usage if isinstance(usage, list) else usage.get("records", [usage])
@@ -2350,7 +2373,7 @@ async def get_usage_monitor(
     user_totals: dict[str, int] = defaultdict(int)
 
     for scope in scopes:
-        uu = data_collector.load_latest("usage_users", scope)
+        uu = data_collector.load_daily_usage_users(scope, start_day=cycle_start_str, end_day=cycle_end_str)
         if not uu:
             continue
         records = uu if isinstance(uu, list) else uu.get("records", [uu])
@@ -2411,7 +2434,7 @@ async def get_usage_monitor(
 
     # ── collect PR + CLI from org-level data (always org-wide) ───────────────
     for scope in scopes:
-        org_usage = data_collector.load_latest("usage", scope)
+        org_usage = data_collector.load_daily_usage(scope, start_day=cycle_start_str, end_day=cycle_end_str)
         if not org_usage:
             continue
         org_records = org_usage if isinstance(org_usage, list) else org_usage.get("records", [org_usage])
@@ -2478,15 +2501,9 @@ async def get_usage_monitor(
     # get all unique model names (used as chart series keys) — only models with actual activity
     all_models = sorted(m for m, v in model_totals.items() if v["interactions"] + v["code_gen"] > 0)
 
-    # date range for period label — prefer report_start_day/report_end_day from records
-    # (these reflect the full 28-day window) over daily_model keys (activity days only)
-    if report_period_starts and report_period_ends:
-        report_start = min(report_period_starts)
-        report_end = max(report_period_ends)
-    else:
-        report_days = sorted(daily_model.keys())
-        report_start = report_days[0] if report_days else None
-        report_end = report_days[-1] if report_days else None
+    # date range for period label — use billing cycle dates
+    report_start = cycle_start_str
+    report_end = cycle_end_str
 
     # per-user model breakdown
     user_model_list = []
@@ -2563,9 +2580,12 @@ def _get_selected_scope_names(orgs: str) -> list[str]:
     return list(dict.fromkeys(o.strip() for o in orgs.split(",") if o.strip())) or all_scope_names
 
 
-def _get_usage_user_records(org: str) -> list[dict]:
-    """Return normalized usage_users records for an org."""
-    uu = data_collector.load_latest("usage_users", org)
+def _get_usage_user_records(org: str, start_day: str | None = None, end_day: str | None = None) -> list[dict]:
+    """Return normalized usage_users records for an org, optionally filtered by date range."""
+    if start_day or end_day:
+        uu = data_collector.load_daily_usage_users(org, start_day=start_day, end_day=end_day)
+    else:
+        uu = data_collector.load_latest("usage_users", org)
     if not uu:
         return []
     if isinstance(uu, list):
@@ -2745,6 +2765,9 @@ async def get_roi_dashboard(
         scope_users = _get_scope_usernames(request, group_id or None)
         selected = _get_selected_scope_names(orgs)
 
+        cycle_start_str = date.today().replace(day=1).isoformat()
+        cycle_end_str = date.today().isoformat()
+
         daily_agg: dict[str, dict] = {}
         user_agg: dict[str, dict] = defaultdict(lambda: {
             "interactions": 0,
@@ -2757,7 +2780,7 @@ async def get_roi_dashboard(
         total_loc_accepted = 0
 
         for org_name in selected:
-            for rec in _get_usage_user_records(org_name):
+            for rec in _get_usage_user_records(org_name, start_day=cycle_start_str, end_day=cycle_end_str):
                 login = (rec.get("user_login", "") or "").lower()
                 if not login or (scope_users is not None and login not in scope_users):
                     continue
@@ -2799,21 +2822,31 @@ async def get_roi_dashboard(
             seats_data = data_collector.load_latest("seats", org_name)
             if not billing and not seats_data:
                 continue
-            price = float((billing or {}).get("_detected_price_per_seat", 39.0) or 39.0)
             if scope_users is not None:
-                # Deduplicate by login before counting
                 seen_logins: set = set()
                 for seat in (seats_data or {}).get("seats", []):
                     login = ((seat.get("assignee") or {}).get("login", "") or "").lower()
                     if login and login in scope_users:
                         seen_logins.add(login)
                 seat_count = len(seen_logins)
+                # Use flat price for scoped view
+                price = float((billing or {}).get("_detected_price_per_seat", 39.0) or 39.0)
+                monthly_cost += seat_count * price
+            elif billing and billing.get("_plan_counts"):
+                # Use per-plan pricing from real billing data
+                plan_counts = billing["_plan_counts"]
+                for plan, count in plan_counts.items():
+                    plan_price = COPILOT_PRICING.get(plan, COPILOT_PRICING["enterprise"])
+                    monthly_cost += count * plan_price
+                seat_count = int((billing.get("seat_breakdown", {}) or {}).get("total", sum(plan_counts.values())))
             elif billing and not billing.get("_billing_scope_error"):
                 seat_count = int((billing.get("seat_breakdown", {}) or {}).get("total", 0) or 0)
+                price = float((billing or {}).get("_detected_price_per_seat", 39.0) or 39.0)
+                monthly_cost += seat_count * price
             else:
                 seat_count = int((seats_data or {}).get("total_seats", len((seats_data or {}).get("seats", []))) or 0)
+                monthly_cost += seat_count * 39.0
             total_seats += seat_count
-            monthly_cost += seat_count * price
 
         active_users = len(user_agg)
         acceptance_rate = round(total_code_accept / total_code_gen * 100, 1) if total_code_gen > 0 else 0.0

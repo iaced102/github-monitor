@@ -78,6 +78,19 @@ export function Dashboard({ refreshKey }: Props) {
   const setDateFrom = useCallback((v: string) => ui.patch({ dashboardDateFrom: v }), [ui.patch]);
   const dateTo = ui.dashboardDateTo;
   const setDateTo = useCallback((v: string) => ui.patch({ dashboardDateTo: v }), [ui.patch]);
+
+  // Auto-sync date filter when data range doesn't overlap with stored filter
+  useEffect(() => {
+    if (!data?.date_range?.start || !data?.date_range?.end) return;
+    const rangeStart = data.date_range.start;
+    const rangeEnd = data.date_range.end;
+    const needsReset =
+      (dateFrom && (dateFrom > rangeEnd || dateFrom < rangeStart)) ||
+      (dateTo && (dateTo < rangeStart || dateTo > rangeEnd));
+    if (needsReset) {
+      ui.patch({ dashboardDateFrom: rangeStart, dashboardDateTo: rangeEnd });
+    }
+  }, [data?.date_range?.start, data?.date_range?.end]);
   const [orgDropdownOpen, setOrgDropdownOpen] = useState(false);
   const dropdownRef = useRef<HTMLDivElement>(null);
 

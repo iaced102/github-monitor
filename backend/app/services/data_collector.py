@@ -47,6 +47,7 @@ class DataCollector:
         self._fallback_dir = fallback_dir
         self._api_manager = api_manager
         self._db = db
+        self._billing_pat: str | None = None
 
     @property
     def data_dir(self) -> Path:
@@ -59,6 +60,10 @@ class DataCollector:
     def set_db(self, db: "Database"):
         """Set the database instance (used by global collector after DB init)."""
         self._db = db
+
+    def set_billing_pat(self, pat: str | None):
+        """Set a classic PAT for billing endpoints (seats, AI credits)."""
+        self._billing_pat = pat
 
     def _get_api_for_org(self, org: str) -> GitHubAPI | None:
         """Get the GitHubAPI instance for an org via api_manager."""
@@ -568,75 +573,153 @@ class DataCollector:
                     users_usage = self._reconstruct_usage_users_from_daily(users_rows)
                     summary["synced"].append(f"usage_users/{slug} ({len(users_rows)} days in cycle)")
 
-            # Derive synthetic seats: team members = licensed, billing cycle usage = active
-            # Get all licensed users from enterprise teams
-            all_licensed_users: set[str] = set()
-            try:
-                teams = await api.list_enterprise_teams(slug)
-                if teams:
-                    for team in teams:
-                        team_id = team.get("id", 0)
-                        if not team_id:
+            # ── Seats: prefer real data from billing PAT, fall back to team derivation ──
+            seats_synced = False
+            if self._billing_pat:
+                try:
+                    import httpx
+                    async with httpx.AsyncClient(
+                        base_url="https://api.github.com",
+                        headers={
+                            "Accept": "application/vnd.github+json",
+                            "Authorization": f"Bearer {self._billing_pat}",
+                            "X-GitHub-Api-Version": "2026-03-10",
+                        },
+                        timeout=30.0,
+                    ) as billing_client:
+                        all_seats = []
+                        page = 1
+                        total = 0
+                        while True:
+                            resp = await billing_client.get(
+                                f"/enterprises/{slug}/copilot/billing/seats",
+                                params={"per_page": 100, "page": page},
+                            )
+                            if resp.status_code != 200:
+                                if log_fn:
+                                    log_fn("warn", f"  {slug}: billing PAT seats {resp.status_code} - falling back to teams")
+                                break
+                            data = resp.json()
+                            total = data.get("total_seats", 0)
+                            seats = data.get("seats", [])
+                            if not seats:
+                                break
+                            all_seats.extend(seats)
+                            page += 1
+                        if all_seats:
+                            seats_data = {"total_seats": total, "seats": all_seats}
+                            self._save_json("seats", slug, seats_data)
+                            seats_synced = True
+                            # Count active in billing cycle
+                            from datetime import datetime as dt_cls, timezone as tz_cls
+                            cycle_start_dt = dt_cls(today.year, today.month, 1, tzinfo=tz_cls.utc)
+                            active_count = 0
+                            plan_counts: dict[str, int] = {}
+                            for s in all_seats:
+                                plan = (s.get("plan_type") or "enterprise").lower()
+                                plan_counts[plan] = plan_counts.get(plan, 0) + 1
+                                last = s.get("last_activity_at")
+                                if last:
+                                    try:
+                                        last_dt = dt_cls.fromisoformat(last.replace("Z", "+00:00"))
+                                        if last_dt >= cycle_start_dt:
+                                            active_count += 1
+                                    except (ValueError, TypeError):
+                                        pass
+                            # Determine pricing from plan mix
+                            from ..config import COPILOT_PRICING
+                            monthly_cost = sum(
+                                count * COPILOT_PRICING.get(plan, 39.0)
+                                for plan, count in plan_counts.items()
+                            )
+                            billing_data = {
+                                "seat_breakdown": {
+                                    "total": total,
+                                    "active_this_cycle": active_count,
+                                },
+                                "_detected_price_per_seat": 39.0,
+                                "_detected_plan_type": "enterprise",
+                                "_plan_counts": plan_counts,
+                                "billing_cycle_start": days_in_cycle[0],
+                                "billing_cycle_end": today.isoformat(),
+                            }
+                            self._save_json("billing", slug, billing_data)
+                            summary["synced"].append(f"seats/{slug} ({total} from billing API)")
+                            summary["synced"].append(f"billing/{slug}")
+                            if log_fn:
+                                log_fn("info", f"  {slug}: seats from billing PAT ({total} total, {active_count} active)")
+                except Exception as e:
+                    if log_fn:
+                        log_fn("error", f"  {slug}: billing PAT error - {e}")
+
+            # Fallback: derive seats from enterprise teams if billing PAT unavailable or failed
+            if not seats_synced:
+                all_licensed_users: set[str] = set()
+                try:
+                    teams = await api.list_enterprise_teams(slug)
+                    if teams:
+                        for team in teams:
+                            team_id = team.get("id", 0)
+                            if not team_id:
+                                continue
+                            members_raw = await api.get_enterprise_team_members(slug, team_id)
+                            for m in members_raw:
+                                login = m.get("login", "").strip()
+                                if login:
+                                    all_licensed_users.add(login)
+                except Exception:
+                    pass
+
+                # Determine active users from billing cycle usage reports
+                active_users: dict[str, str] = {}  # login -> last_day
+                if users_usage and users_usage.get("records"):
+                    for rec in users_usage["records"]:
+                        login = rec.get("user_login", "")
+                        if not login:
                             continue
-                        members_raw = await api.get_enterprise_team_members(slug, team_id)
-                        for m in members_raw:
-                            login = m.get("login", "").strip()
-                            if login:
-                                all_licensed_users.add(login)
-            except Exception:
-                pass
+                        day = rec.get("day", "")
+                        has_activity = rec.get("user_initiated_interaction_count", 0) > 0
+                        if has_activity:
+                            if login not in active_users or day > active_users[login]:
+                                active_users[login] = day
+                        all_licensed_users.add(login)
 
-            # Determine active users from billing cycle usage reports
-            active_users: dict[str, str] = {}  # login -> last_day
-            if users_usage and users_usage.get("records"):
-                for rec in users_usage["records"]:
-                    login = rec.get("user_login", "")
-                    if not login:
-                        continue
-                    day = rec.get("day", "")
-                    has_activity = rec.get("user_initiated_interaction_count", 0) > 0
-                    if has_activity:
-                        if login not in active_users or day > active_users[login]:
-                            active_users[login] = day
-                    all_licensed_users.add(login)
+                seats_list = []
+                active_count = 0
+                for login in sorted(all_licensed_users):
+                    last_day = active_users.get(login)
+                    last_activity_at = f"{last_day}T23:59:59Z" if last_day else None
+                    is_active = login in active_users
+                    if is_active:
+                        active_count += 1
+                    seats_list.append({
+                        "assignee": {"login": login, "avatar_url": "", "type": "User"},
+                        "last_activity_at": last_activity_at,
+                        "plan_type": "enterprise",
+                        "pending_cancellation_date": None,
+                    })
 
-            seats_list = []
-            active_count = 0
-            for login in sorted(all_licensed_users):
-                last_day = active_users.get(login)
-                last_activity_at = f"{last_day}T23:59:59Z" if last_day else None
-                is_active = login in active_users
-                if is_active:
-                    active_count += 1
-                seats_list.append({
-                    "assignee": {"login": login, "avatar_url": "", "type": "User"},
-                    "last_activity_at": last_activity_at,
-                    "plan_type": "enterprise",
-                    "pending_cancellation_date": None,
-                })
+                if seats_list:
+                    seats_data = {"total_seats": len(seats_list), "seats": seats_list}
+                    self._save_json("seats", slug, seats_data)
+                    summary["synced"].append(f"seats/{slug} ({len(seats_list)} from teams, estimated)")
+                    if log_fn:
+                        log_fn("info", f"  {slug}: seats derived from teams ({len(seats_list)} licensed, {active_count} active)")
 
-            if seats_list:
-                seats_data = {"total_seats": len(seats_list), "seats": seats_list}
-                self._save_json("seats", slug, seats_data)
-                summary["synced"].append(f"seats/{slug} ({len(seats_list)} total)")
-                if log_fn:
-                    log_fn("info", f"  {slug}: seats derived ({len(seats_list)} licensed, {active_count} active in billing cycle)")
-
-                # Synthetic billing
-                billing_data = {
-                    "seat_breakdown": {
-                        "total": len(seats_list),
-                        "active_this_cycle": active_count,
-                    },
-                    "_detected_price_per_seat": 39.0,
-                    "_detected_plan_type": "enterprise",
-                    "billing_cycle_start": days_in_cycle[0],
-                    "billing_cycle_end": today.isoformat(),
-                }
-                self._save_json("billing", slug, billing_data)
-                summary["synced"].append(f"billing/{slug}")
-                if log_fn:
-                    log_fn("info", f"  {slug}: billing derived ({len(seats_list)} seats, ${len(seats_list) * 39}/mo)")
+                    billing_data = {
+                        "seat_breakdown": {
+                            "total": len(seats_list),
+                            "active_this_cycle": active_count,
+                        },
+                        "_detected_price_per_seat": 39.0,
+                        "_detected_plan_type": "enterprise",
+                        "billing_cycle_start": days_in_cycle[0],
+                        "billing_cycle_end": today.isoformat(),
+                    }
+                    self._save_json("billing", slug, billing_data)
+                    summary["synced"].append(f"billing/{slug}")
+                    if log_fn:
+                        log_fn("info", f"  {slug}: billing derived ({len(seats_list)} seats, ${len(seats_list) * 39}/mo)")
 
             # Metrics from enterprise usage report
             if usage and usage.get("records"):
