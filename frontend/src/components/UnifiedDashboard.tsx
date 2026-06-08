@@ -74,9 +74,9 @@ export function UnifiedDashboard({ refreshKey }: Props) {
       {tab !== "groups" && (
         <div className="dashboard-filters" style={{ marginBottom: 8 }}>
           <div className="dashboard-filter-group">
-            <input type="date" className="dashboard-date-input" value={dateFrom} onChange={(e) => ui.patch({ dashboardDateFrom: e.target.value })} />
+            <input type="date" className="dashboard-date-input" value={dateFrom} max={new Date().toISOString().slice(0, 10)} onChange={(e) => ui.patch({ dashboardDateFrom: e.target.value })} />
             <span className="dashboard-date-sep">—</span>
-            <input type="date" className="dashboard-date-input" value={dateTo} onChange={(e) => ui.patch({ dashboardDateTo: e.target.value })} />
+            <input type="date" className="dashboard-date-input" value={dateTo} max={new Date().toISOString().slice(0, 10)} onChange={(e) => ui.patch({ dashboardDateTo: e.target.value })} />
             {(dateFrom || dateTo) && (
               <button onClick={() => ui.patch({ dashboardDateFrom: "", dashboardDateTo: "" })} style={{ marginLeft: 6, fontSize: 11, cursor: "pointer", background: "none", border: "1px solid var(--border)", borderRadius: 4, padding: "2px 8px" }}>
                 Reset

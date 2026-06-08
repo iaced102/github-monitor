@@ -352,6 +352,12 @@ async def get_dashboard(
     else:
         cycle_start_day = date.today().replace(day=1)
         cycle_end_day = date.today()
+    # Validate: clamp end to today, swap if inverted
+    today = date.today()
+    if cycle_end_day > today:
+        cycle_end_day = today
+    if cycle_start_day > cycle_end_day:
+        cycle_start_day, cycle_end_day = cycle_end_day, cycle_start_day
     cycle_start_str = cycle_start_day.isoformat()
     cycle_end_str = cycle_end_day.isoformat()
 
@@ -2403,6 +2409,14 @@ async def get_usage_monitor(
 
     cycle_start_str = start_date.strip() if start_date.strip() else date.today().replace(day=1).isoformat()
     cycle_end_str = end_date.strip() if end_date.strip() else date.today().isoformat()
+    _cs = date.fromisoformat(cycle_start_str)
+    _ce = date.fromisoformat(cycle_end_str)
+    if _ce > date.today():
+        _ce = date.today()
+    if _cs > _ce:
+        _cs, _ce = _ce, _cs
+    cycle_start_str = _cs.isoformat()
+    cycle_end_str = _ce.isoformat()
 
     def _normalize_model(name: str) -> str:
         """Normalize model names that GitHub returns inconsistently.
@@ -2937,6 +2951,14 @@ async def get_roi_dashboard(
 
         cycle_start_str = start_date.strip() if start_date.strip() else date.today().replace(day=1).isoformat()
         cycle_end_str = end_date.strip() if end_date.strip() else date.today().isoformat()
+        _cs = date.fromisoformat(cycle_start_str)
+        _ce = date.fromisoformat(cycle_end_str)
+        if _ce > date.today():
+            _ce = date.today()
+        if _cs > _ce:
+            _cs, _ce = _ce, _cs
+        cycle_start_str = _cs.isoformat()
+        cycle_end_str = _ce.isoformat()
 
         daily_agg: dict[str, dict] = {}
         user_agg: dict[str, dict] = defaultdict(lambda: {
