@@ -6,7 +6,6 @@ import {
 import { useI18n } from "../contexts/I18nContext";
 import { useUIState } from "../contexts/UIStateContext";
 import { useDashboard, useKpiTrend } from "../hooks/useData";
-import { PeriodicReportButton } from "./PeriodicReportButton";
 import { InfoIcon, ChartTitle } from "./InfoIcon";
 import { UserDetailModal } from "./UserDetailModal";
 import { exportCSV } from "../utils/export";
@@ -64,8 +63,6 @@ export function Dashboard({ refreshKey }: Props) {
   const selectedOrgs = ui.dashboardSelectedOrgs;
   const dateFrom = ui.dashboardDateFrom;
   const dateTo = ui.dashboardDateTo;
-  const setDateFrom = useCallback((v: string) => ui.patch({ dashboardDateFrom: v }), [ui.patch]);
-  const setDateTo = useCallback((v: string) => ui.patch({ dashboardDateTo: v }), [ui.patch]);
   const { data, loading } = useDashboard(selectedOrgs ?? [], ui.selectedGroupId, dateFrom || undefined, dateTo || undefined);
   const { trend } = useKpiTrend(selectedOrgs ?? [], ui.selectedGroupId);
   const [drilldownUser, setDrilldownUser] = useState<string | null>(null);
@@ -79,7 +76,6 @@ export function Dashboard({ refreshKey }: Props) {
     return data.daily_trend;
   }, [data]);
 
-  const allOrgs = data?.orgs || [];
 
   const hasData = data && (data.daily_trend.length > 0 || data.top_users.length > 0 || data.kpi.total_seats > 0);
   // When a group scope is selected, still show dashboard even with 0 KPIs
@@ -117,23 +113,6 @@ export function Dashboard({ refreshKey }: Props) {
           onClose={() => setDrilldownUser(null)}
         />
       )}
-      {/* Filters */}
-      <div className="dashboard-filters">
-        <div className="dashboard-filter-group">
-          <input type="date" className="dashboard-date-input" value={dateFrom || data?.date_range?.start || ""} onChange={(e) => setDateFrom(e.target.value)} />
-          <span className="dashboard-date-sep">—</span>
-          <input type="date" className="dashboard-date-input" value={dateTo || data?.date_range?.end || ""} onChange={(e) => setDateTo(e.target.value)} />
-          {(dateFrom || dateTo) && (
-            <button onClick={() => { ui.patch({ dashboardDateFrom: "", dashboardDateTo: "" }); }} style={{ marginLeft: 6, fontSize: 11, cursor: "pointer", background: "none", border: "1px solid var(--border)", borderRadius: 4, padding: "2px 8px" }}>
-              Reset
-            </button>
-          )}
-        </div>
-        <div className="dashboard-filter-group" style={{ marginLeft: "auto" }}>
-          <PeriodicReportButton selectedOrgs={selectedOrgs ?? allOrgs} />
-        </div>
-      </div>
-
       {loading && !data && <div className="dashboard-loading">{t("loading")}</div>}
       {!loading && !hasDataOrGroupScope && <div className="dashboard-empty">{t("dashboard.noData")}</div>}
       {!loading && !hasData && hasDataOrGroupScope && (

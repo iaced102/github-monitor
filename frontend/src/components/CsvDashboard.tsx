@@ -1009,18 +1009,8 @@ export function CsvDashboard({ refreshKey, tab }: Props) {
   const setProducts = useCallback((v: string[]) => ui.patch({ csvDashProducts: v }), [ui.patch]);
   const skus = ui.csvDashSkus;
   const setSkus = useCallback((v: string[]) => ui.patch({ csvDashSkus: v }), [ui.patch]);
-  const dateFrom = ui.csvDashDateFrom;
-  const setDateFrom = useCallback((v: string) => ui.patch({ csvDashDateFrom: v }), [ui.patch]);
-  const dateTo = ui.csvDashDateTo;
-  const setDateTo = useCallback((v: string) => ui.patch({ csvDashDateTo: v }), [ui.patch]);
-
-  // Default date range: billing cycle (1st of month → today)
-  const defaultDateRange = useMemo(() => {
-    const to = new Date();
-    const from = new Date(to.getFullYear(), to.getMonth(), 1);
-    const fmt = (d: Date) => d.toISOString().slice(0, 10);
-    return { start: fmt(from), end: fmt(to) };
-  }, []);
+  const dateFrom = ui.dashboardDateFrom;
+  const dateTo = ui.dashboardDateTo;
 
   const params = useMemo(() => ({
     orgs, costCenters, products, skus, dateFrom, dateTo,
@@ -1033,12 +1023,6 @@ export function CsvDashboard({ refreshKey, tab }: Props) {
     data.premium_csv?.has_data || data.usage_report?.has_data ||
     data.api_usage?.has_data || data.api_premium?.has_data
   );
-
-  const activeDateRange = useMemo(() => {
-    if (!data) return null;
-    const section = tab === "premium" ? data.premium_csv : data.usage_report;
-    return section?.has_data ? section.date_range : null;
-  }, [data, tab]);
 
   return (
     <div className="dashboard" key={`${refreshKey}-${tab}`}>
@@ -1066,21 +1050,6 @@ export function CsvDashboard({ refreshKey, tab }: Props) {
               )}
             </>
           )}
-        </div>
-        <div className="dashboard-filter-group">
-          <input
-            type="date"
-            className="dashboard-date-input"
-            value={dateFrom || activeDateRange?.start || defaultDateRange.start}
-            onChange={(e) => setDateFrom(e.target.value)}
-          />
-          <span className="dashboard-date-sep">—</span>
-          <input
-            type="date"
-            className="dashboard-date-input"
-            value={dateTo || activeDateRange?.end || defaultDateRange.end}
-            onChange={(e) => setDateTo(e.target.value)}
-          />
         </div>
       </div>
 
