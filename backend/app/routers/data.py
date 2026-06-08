@@ -369,6 +369,17 @@ async def get_dashboard(
     _now = datetime.now(timezone.utc)
     has_billing_error = False
 
+    # Determine active users from usage data in the selected date range
+    active_logins_in_range: set[str] = set()
+    for org_name in ([o.strip() for o in orgs.split(",") if o.strip()] if orgs.strip() else _get_all_scope_names()):
+        uu = data_collector.load_daily_usage_users(org_name, start_day=cycle_start_str, end_day=cycle_end_str)
+        if not uu:
+            continue
+        for rec in uu.get("records", []):
+            login = rec.get("user_login", "")
+            if login and (rec.get("user_initiated_interaction_count", 0) > 0 or rec.get("code_generation_activity_count", 0) > 0):
+                active_logins_in_range.add(login.lower())
+
     for org_name in selected:
         billing = data_collector.load_latest("billing", org_name)
         seats_data = data_collector.load_latest("seats", org_name)
@@ -397,13 +408,7 @@ async def get_dashboard(
                 non_pending = [seat for seat in user_seats if not seat.get("pending_cancellation_date")]
                 primary = non_pending[0] if non_pending else user_seats[0]
                 plan = (primary.get("plan_type") or "unknown").lower()
-                is_active = False
-                # User is active if ANY of their seat records shows recent activity
-                for seat in user_seats:
-                    last = seat.get("last_activity_at")
-                    if _is_active_in_billing_cycle(last):
-                        is_active = True
-                        break
+                is_active = login in active_logins_in_range
                 grp_plan_seats[plan] = grp_plan_seats.get(plan, 0) + 1
                 if is_active:
                     a += 1
@@ -435,12 +440,7 @@ async def get_dashboard(
                 non_pending = [seat for seat in user_seats if not seat.get("pending_cancellation_date")]
                 primary = non_pending[0] if non_pending else user_seats[0]
                 plan = (primary.get("plan_type") or "unknown").lower()
-                is_active = False
-                for seat in user_seats:
-                    last = seat.get("last_activity_at")
-                    if _is_active_in_billing_cycle(last):
-                        is_active = True
-                        break
+                is_active = login in active_logins_in_range
                 org_plan_seats[plan] = org_plan_seats.get(plan, 0) + 1
                 if is_active:
                     a += 1
