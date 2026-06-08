@@ -610,22 +610,33 @@ class DataCollector:
                             seats_data = {"total_seats": total, "seats": all_seats}
                             self._save_json("seats", slug, seats_data)
                             seats_synced = True
-                            # Count active in billing cycle
+                            # Count active in billing cycle — dedup by login
                             from datetime import datetime as dt_cls, timezone as tz_cls
                             cycle_start_dt = dt_cls(today.year, today.month, 1, tzinfo=tz_cls.utc)
                             active_count = 0
                             plan_counts: dict[str, int] = {}
+                            # Group seats by login, pick primary plan (non-pending preferred)
+                            by_login: dict[str, list] = {}
                             for s in all_seats:
-                                plan = (s.get("plan_type") or "enterprise").lower()
+                                login = ((s.get("assignee") or {}).get("login") or "").lower()
+                                if login:
+                                    by_login.setdefault(login, []).append(s)
+                            for login, user_seats in by_login.items():
+                                non_pending = [s for s in user_seats if not s.get("pending_cancellation_date")]
+                                primary = non_pending[0] if non_pending else user_seats[0]
+                                plan = (primary.get("plan_type") or "enterprise").lower()
                                 plan_counts[plan] = plan_counts.get(plan, 0) + 1
-                                last = s.get("last_activity_at")
-                                if last:
-                                    try:
-                                        last_dt = dt_cls.fromisoformat(last.replace("Z", "+00:00"))
-                                        if last_dt >= cycle_start_dt:
-                                            active_count += 1
-                                    except (ValueError, TypeError):
-                                        pass
+                                # Check if active in any seat record
+                                for s in user_seats:
+                                    last = s.get("last_activity_at")
+                                    if last:
+                                        try:
+                                            last_dt = dt_cls.fromisoformat(last.replace("Z", "+00:00"))
+                                            if last_dt >= cycle_start_dt:
+                                                active_count += 1
+                                                break
+                                        except (ValueError, TypeError):
+                                            pass
                             # Determine pricing from plan mix
                             from ..config import COPILOT_PRICING
                             monthly_cost = sum(
@@ -648,6 +659,22 @@ class DataCollector:
                             summary["synced"].append(f"billing/{slug}")
                             if log_fn:
                                 log_fn("info", f"  {slug}: seats from billing PAT ({total} total, {active_count} active)")
+
+                        # Fetch AI Credits usage for current month
+                        resp = await billing_client.get(
+                            f"/enterprises/{slug}/settings/billing/ai_credit/usage",
+                            params={"year": today.year, "month": today.month},
+                        )
+                        if resp.status_code == 200:
+                            credits_data = resp.json()
+                            self._save_json("ai_credits", slug, credits_data)
+                            items = credits_data.get("usageItems", [])
+                            total_credits = sum(i.get("grossQuantity", 0) for i in items)
+                            summary["synced"].append(f"ai_credits/{slug} ({len(items)} models, {total_credits:.0f} credits)")
+                            if log_fn:
+                                log_fn("info", f"  {slug}: AI credits synced ({total_credits:.0f} gross credits, {len(items)} models)")
+                        elif log_fn:
+                            log_fn("warn", f"  {slug}: AI credits endpoint {resp.status_code} - skipped")
                 except Exception as e:
                     if log_fn:
                         log_fn("error", f"  {slug}: billing PAT error - {e}")

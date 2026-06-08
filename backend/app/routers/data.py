@@ -764,6 +764,26 @@ async def get_dashboard(
             if rec.get("used_chat"):
                 u["used_chat"] = True
 
+    # Merge with seats to include all licensed users (not just active)
+    for org_name in selected:
+        seats_data = data_collector.load_latest("seats", org_name)
+        if not seats_data:
+            continue
+        seen_logins: set[str] = set()
+        for s in seats_data.get("seats", []):
+            login = (s.get("assignee") or {}).get("login", "")
+            if not login or login.lower() in seen_logins:
+                continue
+            seen_logins.add(login.lower())
+            if scope_users is not None and login.lower() not in scope_users:
+                continue
+            if login not in user_agg:
+                user_agg[login] = {
+                    "interactions": 0, "code_gen": 0, "code_accept": 0,
+                    "loc_suggested": 0, "loc_accepted": 0,
+                    "days_active": 0, "used_agent": False, "used_chat": False,
+                }
+
     top_users = sorted(
         [{"user": k, **v} for k, v in user_agg.items()],
         key=lambda x: -x["interactions"],
@@ -921,6 +941,31 @@ def _build_api_usage_section(scope_users: set[str] | None = None) -> dict:
                 u["ides"][ide] += ide_data.get("code_generation_activity_count", 0)
 
     if not user_agg:
+        # Even with no usage, show licensed users if seats available
+        pass
+
+    # Merge with seats data to include all licensed users (not just active)
+    all_scope_names_for_seats = _get_all_scope_names()
+    for scope in all_scope_names_for_seats:
+        seats_data = data_collector.load_latest("seats", scope)
+        if not seats_data:
+            continue
+        seen_logins: set[str] = set()
+        for s in seats_data.get("seats", []):
+            login = (s.get("assignee") or {}).get("login", "")
+            if not login or login.lower() in seen_logins:
+                continue
+            seen_logins.add(login.lower())
+            if scope_users is not None and login.lower() not in scope_users:
+                continue
+            if login not in user_agg:
+                user_agg[login] = {
+                    "interactions": 0, "code_gen": 0, "code_accept": 0,
+                    "loc_suggested": 0, "loc_accepted": 0, "days_active": 0,
+                    "org": scope, "ides": defaultdict(int),
+                }
+
+    if not user_agg:
         return {"has_data": False, "scope_filtered": scope_users is not None, "users": [], "date_range": {}, "total_users": 0}
 
     users = sorted(
@@ -1047,7 +1092,82 @@ def _build_api_premium_section(scope_users: set[str] | None = None) -> dict:
             result["models"] = []
         return result
 
-    # --- Try billing-level premium_requests data first ---
+    # --- Try AI Credits data first (new billing model, June 2026+) ---
+    ai_credits_data = None
+    for scope in all_scope_names:
+        ai_credits_data = data_collector.load_latest("ai_credits", scope)
+        if ai_credits_data and ai_credits_data.get("usageItems"):
+            break
+
+    if ai_credits_data and ai_credits_data.get("usageItems"):
+        items = ai_credits_data["usageItems"]
+        model_map: dict[str, dict] = defaultdict(lambda: {
+            "gross_qty": 0.0, "net_qty": 0.0, "gross_amount": 0.0, "net_amount": 0.0,
+        })
+        total_gross = 0.0
+        total_net = 0.0
+        total_gross_amount = 0.0
+        total_net_amount = 0.0
+        for item in items:
+            m = item.get("model", "unknown")
+            gross_qty = item.get("grossQuantity", 0)
+            net_qty = item.get("netQuantity", 0)
+            gross_amt = item.get("grossAmount", 0)
+            net_amt = item.get("netAmount", 0)
+            model_map[m]["gross_qty"] += gross_qty
+            model_map[m]["net_qty"] += net_qty
+            model_map[m]["gross_amount"] += gross_amt
+            model_map[m]["net_amount"] += net_amt
+            total_gross += gross_qty
+            total_net += net_qty
+            total_gross_amount += gross_amt
+            total_net_amount += net_amt
+
+        models = sorted(
+            [{"model": k, **v} for k, v in model_map.items()],
+            key=lambda x: -x["gross_qty"],
+        )
+
+        # Pool info
+        from ..config import AIC_INCLUDED_PER_USER, AIC_PROMO_PER_USER, AIC_PROMO_START, AIC_PROMO_END
+        billing = data_collector.load_latest("billing", all_scope_names[0]) if all_scope_names else None
+        seats_data = data_collector.load_latest("seats", all_scope_names[0]) if all_scope_names else None
+        total_seats = (seats_data or {}).get("total_seats", 0)
+        today_str = date.today().isoformat()
+        is_promo = AIC_PROMO_START <= today_str < AIC_PROMO_END
+        plan_counts = (billing or {}).get("_plan_counts", {"enterprise": total_seats})
+        pool_total = 0
+        for plan, count in plan_counts.items():
+            if is_promo:
+                credits_per = AIC_PROMO_PER_USER.get(plan, AIC_PROMO_PER_USER["enterprise"])
+            else:
+                credits_per = AIC_INCLUDED_PER_USER.get(plan, AIC_INCLUDED_PER_USER["enterprise"])
+            pool_total += count * credits_per
+        pool_used_pct = round(total_gross / pool_total * 100, 1) if pool_total > 0 else 0.0
+
+        return {
+            "has_data": True,
+            "source": "ai_credits",
+            "billing_model": "usage_based",
+            "models": models,
+            "total_requests": round(total_gross, 1),
+            "net_requests": round(total_net, 1),
+            "total_cost": round(total_net_amount, 4),
+            "gross_cost": round(total_gross_amount, 4),
+            "pool": {
+                "total_credits": pool_total,
+                "plan_breakdown": {plan: count * (AIC_PROMO_PER_USER.get(plan, 7000) if is_promo else AIC_INCLUDED_PER_USER.get(plan, 3900)) for plan, count in plan_counts.items()},
+                "total_seats": total_seats,
+                "used_credits": round(total_gross, 1),
+                "used_pct": pool_used_pct,
+                "overage_credits": round(total_net, 1),
+                "overage_cost": round(total_net_amount, 4),
+                "is_promo": is_promo,
+            },
+            "time_period": ai_credits_data.get("timePeriod", {}),
+        }
+
+    # --- Fallback: Try legacy premium_requests data ---
     model_map: dict[str, dict] = defaultdict(lambda: {
         "gross_qty": 0, "net_qty": 0, "gross_amount": 0.0, "net_amount": 0.0,
     })
