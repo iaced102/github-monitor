@@ -1,4 +1,4 @@
-import { useState, useMemo, useRef, useEffect, useCallback } from "react";
+import { useState, useMemo, useEffect, useCallback } from "react";
 import {
   AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
   BarChart, Bar, PieChart, Pie, Cell, Legend, LineChart, Line,
@@ -62,10 +62,6 @@ export function Dashboard({ refreshKey }: Props) {
   const { t } = useI18n();
   const ui = useUIState();
   const selectedOrgs = ui.dashboardSelectedOrgs;
-  const setSelectedOrgs = useCallback((v: string[] | null | ((prev: string[] | null) => string[] | null)) => {
-    const next = typeof v === "function" ? v(ui.dashboardSelectedOrgs) : v;
-    ui.patch({ dashboardSelectedOrgs: next });
-  }, [ui.patch, ui.dashboardSelectedOrgs]);
   const { data, loading } = useDashboard(selectedOrgs ?? [], ui.selectedGroupId);
   const { trend } = useKpiTrend(selectedOrgs ?? [], ui.selectedGroupId);
   const [drilldownUser, setDrilldownUser] = useState<string | null>(null);
@@ -91,20 +87,6 @@ export function Dashboard({ refreshKey }: Props) {
       ui.patch({ dashboardDateFrom: rangeStart, dashboardDateTo: rangeEnd });
     }
   }, [data?.date_range?.start, data?.date_range?.end]);
-  const [orgDropdownOpen, setOrgDropdownOpen] = useState(false);
-  const dropdownRef = useRef<HTMLDivElement>(null);
-
-  useEffect(() => {
-    const handleClickOutside = (e: MouseEvent) => {
-      if (dropdownRef.current && !dropdownRef.current.contains(e.target as Node)) {
-        setOrgDropdownOpen(false);
-      }
-    };
-    if (orgDropdownOpen) {
-      document.addEventListener("mousedown", handleClickOutside);
-      return () => document.removeEventListener("mousedown", handleClickOutside);
-    }
-  }, [orgDropdownOpen]);
 
   const filteredTrend = useMemo(() => {
     if (!data) return [];
@@ -116,36 +98,9 @@ export function Dashboard({ refreshKey }: Props) {
 
   const allOrgs = data?.orgs || [];
 
-  const handleOrgToggle = useCallback((org: string) => {
-    setSelectedOrgs((prev) => {
-      if (prev === null) return allOrgs.filter((o) => o !== org);
-      const next = prev.includes(org) ? prev.filter((o) => o !== org) : [...prev, org];
-      if (next.length === allOrgs.length) return null;
-      return next;
-    });
-  }, [allOrgs]);
-
-  const toggleAllOrgs = useCallback(() => {
-    setSelectedOrgs((prev) => (prev === null ? [] : null));
-  }, []);
-
-  const isOrgSelected = useCallback((org: string) => {
-    return selectedOrgs === null || selectedOrgs.includes(org);
-  }, [selectedOrgs]);
-
-  const isAllSelected = selectedOrgs === null;
-  const hasSelection = selectedOrgs === null || selectedOrgs.length > 0;
-
-  const orgTriggerLabel = useMemo(() => {
-    if (selectedOrgs === null) return t("dashboard.allOrgs");
-    if (selectedOrgs.length === 0) return t("dashboard.noSelection");
-    if (selectedOrgs.length === 1) return selectedOrgs[0];
-    return `${selectedOrgs.length} / ${allOrgs.length}`;
-  }, [selectedOrgs, allOrgs.length, t]);
-
-  const hasData = hasSelection && data && (data.daily_trend.length > 0 || data.top_users.length > 0 || data.kpi.total_seats > 0);
+  const hasData = data && (data.daily_trend.length > 0 || data.top_users.length > 0 || data.kpi.total_seats > 0);
   // When a group scope is selected, still show dashboard even with 0 KPIs
-  const hasDataOrGroupScope = hasData || (hasSelection && !!data && !!ui.selectedGroupId);
+  const hasDataOrGroupScope = hasData || (!!data && !!ui.selectedGroupId);
 
   // Acceptance rate trend
   const acceptRateTrend = useMemo(() => {
@@ -181,30 +136,6 @@ export function Dashboard({ refreshKey }: Props) {
       )}
       {/* Filters */}
       <div className="dashboard-filters">
-        <div className="dashboard-filter-group">
-          <label>{t("dashboard.filters")}:</label>
-          <div className="org-dropdown" ref={dropdownRef}>
-            <button className="org-dropdown-trigger" onClick={() => setOrgDropdownOpen((v) => !v)}>
-              <span>{orgTriggerLabel}</span>
-              <span className="org-dropdown-arrow">{orgDropdownOpen ? "\u25B4" : "\u25BE"}</span>
-            </button>
-            {orgDropdownOpen && (
-              <div className="org-dropdown-menu">
-                <label className={`org-dropdown-item ${isAllSelected ? "org-dropdown-item-active" : ""}`}>
-                  <input type="checkbox" checked={isAllSelected} onChange={toggleAllOrgs} />
-                  <span>{t("dashboard.allOrgs")}</span>
-                </label>
-                <div className="org-dropdown-divider" />
-                {allOrgs.map((org) => (
-                  <label key={org} className={`org-dropdown-item ${isOrgSelected(org) ? "org-dropdown-item-active" : ""}`}>
-                    <input type="checkbox" checked={isOrgSelected(org)} onChange={() => handleOrgToggle(org)} />
-                    <span>{org}</span>
-                  </label>
-                ))}
-              </div>
-            )}
-          </div>
-        </div>
         <div className="dashboard-filter-group">
           <input type="date" className="dashboard-date-input" value={dateFrom || data?.date_range?.start || ""} onChange={(e) => setDateFrom(e.target.value)} />
           <span className="dashboard-date-sep">—</span>

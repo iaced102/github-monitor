@@ -1004,9 +1004,7 @@ export function CsvDashboard({ refreshKey, tab }: Props) {
   const ui = useUIState();
 
   const orgs = ui.csvDashOrgs;
-  const setOrgs = useCallback((v: string[]) => ui.patch({ csvDashOrgs: v }), [ui.patch]);
   const costCenters = ui.csvDashCostCenters;
-  const setCostCenters = useCallback((v: string[]) => ui.patch({ csvDashCostCenters: v }), [ui.patch]);
   const products = ui.csvDashProducts;
   const setProducts = useCallback((v: string[]) => ui.patch({ csvDashProducts: v }), [ui.patch]);
   const skus = ui.csvDashSkus;
@@ -1050,18 +1048,6 @@ export function CsvDashboard({ refreshKey, tab }: Props) {
           <label>{t("csvDash.filters")}:</label>
           {data && (
             <>
-              <MultiSelect
-                label={t("dashboard.allOrgs")}
-                options={data.filters.orgs}
-                selected={orgs}
-                onChange={setOrgs}
-              />
-              <MultiSelect
-                label={t("csvDash.allCostCenters")}
-                options={data.filters.cost_centers}
-                selected={costCenters}
-                onChange={setCostCenters}
-              />
               {tab === "usage" && (
                 <>
                   <MultiSelect
