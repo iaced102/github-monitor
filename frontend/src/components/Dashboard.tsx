@@ -5,7 +5,7 @@ import {
 } from "recharts";
 import { useI18n } from "../contexts/I18nContext";
 import { useUIState } from "../contexts/UIStateContext";
-import { useDashboard, useKpiTrend } from "../hooks/useData";
+import { useDashboard } from "../hooks/useData";
 import { InfoIcon, ChartTitle } from "./InfoIcon";
 import { UserDetailModal } from "./UserDetailModal";
 import { exportCSV } from "../utils/export";
@@ -64,7 +64,6 @@ export function Dashboard({ refreshKey }: Props) {
   const dateFrom = ui.dashboardDateFrom;
   const dateTo = ui.dashboardDateTo;
   const { data, loading } = useDashboard(selectedOrgs ?? [], ui.selectedGroupId, dateFrom || undefined, dateTo || undefined);
-  const { trend } = useKpiTrend(selectedOrgs ?? [], ui.selectedGroupId);
   const [drilldownUser, setDrilldownUser] = useState<string | null>(null);
   const [selectedFeature, setSelectedFeature] = useState<string | null>(null);
   const [seatFilterPlan, setSeatFilterPlan] = useState<string>("all");
@@ -81,6 +80,19 @@ export function Dashboard({ refreshKey }: Props) {
   // When a group scope is selected, still show dashboard even with 0 KPIs
   const hasDataOrGroupScope = hasData || (!!data && !!ui.selectedGroupId);
 
+  // Compute acceptance rate and avg DAU from filtered data
+  const periodKpi = useMemo(() => {
+    if (!filteredTrend.length) return null;
+    const totalCodeGen = filteredTrend.reduce((s, d) => s + d.code_gen, 0);
+    const totalCodeAccept = filteredTrend.reduce((s, d) => s + d.code_accept, 0);
+    const totalDau = filteredTrend.reduce((s, d) => s + d.dau, 0);
+    return {
+      acceptance_rate: totalCodeGen > 0 ? Math.round(totalCodeAccept / totalCodeGen * 1000) / 10 : 0,
+      avg_dau: Math.round(totalDau / filteredTrend.length * 10) / 10,
+      days: filteredTrend.length,
+    };
+  }, [filteredTrend]);
+
   // Acceptance rate trend
   const acceptRateTrend = useMemo(() => {
     return filteredTrend.map((d) => ({
@@ -89,19 +101,6 @@ export function Dashboard({ refreshKey }: Props) {
       loc_accept_rate: d.loc_suggested > 0 ? Math.min(100, Math.round((d.loc_accepted / d.loc_suggested) * 100)) : 0,
     }));
   }, [filteredTrend]);
-
-  // WoW delta helper
-  const delta = (key: string) => {
-    if (!trend?.deltas) return null;
-    const v = trend.deltas[key];
-    if (v == null || v === 0) return null;
-    const pos = v > 0;
-    return (
-      <span className={`kpi-delta ${pos ? "kpi-delta-up" : "kpi-delta-down"}`}>
-        {pos ? "▲" : "▼"} {Math.abs(Math.round(v))}%
-      </span>
-    );
-  };
 
   return (
     <div className="dashboard" key={refreshKey}>
@@ -153,17 +152,17 @@ export function Dashboard({ refreshKey }: Props) {
               </div>
               <div className="stat-label">{t("sidebar.monthlyWaste")}</div>
             </div>
-            {trend?.has_data && (
+            {periodKpi && (
               <>
                 <div className="stat-card stat-card-trend">
                   <InfoIcon id="kpi_acceptance_rate" />
-                  <div className="stat-value">{trend.current.acceptance_rate?.toFixed(1)}%</div>
-                  <div className="stat-label">Acceptance Rate (7d) {delta("acceptance_rate_pt")}</div>
+                  <div className="stat-value">{periodKpi.acceptance_rate.toFixed(1)}%</div>
+                  <div className="stat-label">Acceptance Rate ({periodKpi.days}d)</div>
                 </div>
                 <div className="stat-card stat-card-trend">
                   <InfoIcon id="kpi_avg_dau" />
-                  <div className="stat-value">{trend.current.avg_dau?.toFixed(1)}</div>
-                  <div className="stat-label">Avg DAU (7d) {delta("dau_pct")}</div>
+                  <div className="stat-value">{periodKpi.avg_dau.toFixed(1)}</div>
+                  <div className="stat-label">Avg DAU ({periodKpi.days}d)</div>
                 </div>
               </>
             )}
