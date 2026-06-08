@@ -91,7 +91,7 @@ export function useSync() {
   return { sync };
 }
 
-export function useDashboard(selectedOrgs: string[], groupId?: number | null, month?: string) {
+export function useDashboard(selectedOrgs: string[], groupId?: number | null, startDate?: string, endDate?: string) {
   const [data, setData] = useState<DashboardData | null>(null);
   const [loading, setLoading] = useState(true);
 
@@ -101,7 +101,8 @@ export function useDashboard(selectedOrgs: string[], groupId?: number | null, mo
       const qp = new URLSearchParams();
       if (selectedOrgs.length > 0) qp.set("orgs", selectedOrgs.join(","));
       if (groupId) qp.set("group_id", String(groupId));
-      if (month) qp.set("month", month);
+      if (startDate) qp.set("start_date", startDate);
+      if (endDate) qp.set("end_date", endDate);
       const res = await fetch(`/api/data/dashboard?${qp}`);
       const json = await res.json();
       setData(json);
@@ -110,7 +111,7 @@ export function useDashboard(selectedOrgs: string[], groupId?: number | null, mo
     } finally {
       setLoading(false);
     }
-  }, [selectedOrgs.join(","), groupId, month]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [selectedOrgs.join(","), groupId, startDate, endDate]); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
     fetchDashboard();
@@ -234,7 +235,7 @@ export function useCsvDashboard(params: {
   return { data, loading, refetch: fetchData };
 }
 
-export function useRoiDashboard(selectedOrgs: string[], groupId?: number | null) {
+export function useRoiDashboard(selectedOrgs: string[], groupId?: number | null, startDate?: string, endDate?: string) {
   const [data, setData] = useState<any | null>(null);
   const [loading, setLoading] = useState(true);
 
@@ -244,11 +245,13 @@ export function useRoiDashboard(selectedOrgs: string[], groupId?: number | null)
       const qp = new URLSearchParams();
       if (selectedOrgs.length > 0) qp.set("orgs", selectedOrgs.join(","));
       if (groupId) qp.set("group_id", String(groupId));
+      if (startDate) qp.set("start_date", startDate);
+      if (endDate) qp.set("end_date", endDate);
       const res = await fetch(`/api/data/roi?${qp}`);
       setData(await res.json());
     } catch { setData(null); }
     finally { setLoading(false); }
-  }, [selectedOrgs.join(","), groupId]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [selectedOrgs.join(","), groupId, startDate, endDate]); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => { fetchData(); }, [fetchData]);
   return { data, loading, refetch: fetchData };
@@ -286,7 +289,7 @@ export function useLifecycleScan(thresholdDays: number, groupId?: number | null)
   return { data, loading, scan };
 }
 
-export function useUsageMonitor(selectedOrgs: string[], groupId?: number | null) {
+export function useUsageMonitor(selectedOrgs: string[], groupId?: number | null, startDate?: string, endDate?: string) {
   const [data, setData] = useState<any | null>(null);
   const [loading, setLoading] = useState(true);
 
@@ -296,6 +299,8 @@ export function useUsageMonitor(selectedOrgs: string[], groupId?: number | null)
       const qp = new URLSearchParams();
       if (selectedOrgs.length > 0) qp.set("orgs", selectedOrgs.join(","));
       if (groupId) qp.set("group_id", String(groupId));
+      if (startDate) qp.set("start_date", startDate);
+      if (endDate) qp.set("end_date", endDate);
       const res = await fetch(`/api/data/usage-monitor?${qp}`);
       const json = await res.json();
       setData(json);
@@ -304,7 +309,7 @@ export function useUsageMonitor(selectedOrgs: string[], groupId?: number | null)
     } finally {
       setLoading(false);
     }
-  }, [selectedOrgs.join(","), groupId]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [selectedOrgs.join(","), groupId, startDate, endDate]); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
     fetchData();

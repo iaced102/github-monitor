@@ -27,7 +27,7 @@ export function RoiDashboard({ refreshKey }: Props) {
   const { t } = useI18n();
   const ui = useUIState();
   const selectedOrgs = ui.dashboardSelectedOrgs ?? [];
-  const { data, loading } = useRoiDashboard(selectedOrgs, ui.selectedGroupId);
+  const { data, loading } = useRoiDashboard(selectedOrgs, ui.selectedGroupId, ui.dashboardDateFrom || undefined, ui.dashboardDateTo || undefined);
 
   const exportUsers = useCallback(() => {
     if (!data?.top_users_by_acceptance) return;

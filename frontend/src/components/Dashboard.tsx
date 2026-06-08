@@ -62,8 +62,11 @@ export function Dashboard({ refreshKey }: Props) {
   const { t } = useI18n();
   const ui = useUIState();
   const selectedOrgs = ui.dashboardSelectedOrgs;
-  const [selectedMonth, setSelectedMonth] = useState<string>("");
-  const { data, loading } = useDashboard(selectedOrgs ?? [], ui.selectedGroupId, selectedMonth || undefined);
+  const dateFrom = ui.dashboardDateFrom;
+  const dateTo = ui.dashboardDateTo;
+  const setDateFrom = useCallback((v: string) => ui.patch({ dashboardDateFrom: v }), [ui.patch]);
+  const setDateTo = useCallback((v: string) => ui.patch({ dashboardDateTo: v }), [ui.patch]);
+  const { data, loading } = useDashboard(selectedOrgs ?? [], ui.selectedGroupId, dateFrom || undefined, dateTo || undefined);
   const { trend } = useKpiTrend(selectedOrgs ?? [], ui.selectedGroupId);
   const [drilldownUser, setDrilldownUser] = useState<string | null>(null);
   const [selectedFeature, setSelectedFeature] = useState<string | null>(null);
@@ -117,11 +120,12 @@ export function Dashboard({ refreshKey }: Props) {
       {/* Filters */}
       <div className="dashboard-filters">
         <div className="dashboard-filter-group">
-          <label>Chu kỳ billing:</label>
-          <input type="month" className="dashboard-date-input" value={selectedMonth} onChange={(e) => setSelectedMonth(e.target.value)} />
-          {selectedMonth && (
-            <button className="dashboard-reset-btn" onClick={() => setSelectedMonth("")} style={{ marginLeft: 6, fontSize: 11, cursor: "pointer", background: "none", border: "1px solid var(--border)", borderRadius: 4, padding: "2px 8px" }}>
-              Tháng hiện tại
+          <input type="date" className="dashboard-date-input" value={dateFrom || data?.date_range?.start || ""} onChange={(e) => setDateFrom(e.target.value)} />
+          <span className="dashboard-date-sep">—</span>
+          <input type="date" className="dashboard-date-input" value={dateTo || data?.date_range?.end || ""} onChange={(e) => setDateTo(e.target.value)} />
+          {(dateFrom || dateTo) && (
+            <button onClick={() => { ui.patch({ dashboardDateFrom: "", dashboardDateTo: "" }); }} style={{ marginLeft: 6, fontSize: 11, cursor: "pointer", background: "none", border: "1px solid var(--border)", borderRadius: 4, padding: "2px 8px" }}>
+              Reset
             </button>
           )}
         </div>

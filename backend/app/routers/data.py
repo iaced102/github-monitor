@@ -322,6 +322,8 @@ async def get_dashboard(
     orgs: str = Query(default=""),
     group_id: int = Query(default=0),
     month: str = Query(default="", description="Billing cycle month, e.g. '2026-05'. Empty = current month."),
+    start_date: str = Query(default="", description="Start date override, e.g. '2026-06-01'. Overrides month."),
+    end_date: str = Query(default="", description="End date override, e.g. '2026-06-08'. Overrides month."),
 ):
     """Aggregated dashboard data for visualization.
 
@@ -332,9 +334,12 @@ async def get_dashboard(
     """
     scope_users = _get_scope_usernames(request, group_id or None)
 
-    # Parse month parameter for billing cycle filtering
+    # Parse date range: start_date/end_date override month, which overrides default (current billing cycle)
     import calendar
-    if month.strip():
+    if start_date.strip() and end_date.strip():
+        cycle_start_day = date.fromisoformat(start_date.strip())
+        cycle_end_day = date.fromisoformat(end_date.strip())
+    elif month.strip():
         try:
             parts = month.strip().split("-")
             m_year, m_month = int(parts[0]), int(parts[1])
@@ -2384,6 +2389,8 @@ async def get_usage_monitor(
     request: Request,
     orgs: str = Query(default="", description="Comma-separated org slugs; empty = all"),
     group_id: int = Query(default=0),
+    start_date: str = Query(default="", description="Start date, e.g. '2026-06-01'. Empty = 1st of current month."),
+    end_date: str = Query(default="", description="End date, e.g. '2026-06-08'. Empty = today."),
 ):
     """Aggregate model/user usage analytics from cached usage data."""
     from collections import defaultdict
@@ -2393,6 +2400,9 @@ async def get_usage_monitor(
     org_filter = {o.strip() for o in orgs.split(",") if o.strip()} if orgs else set()
     all_scopes = _get_all_scope_names()
     scopes = [s for s in all_scopes if not org_filter or s in org_filter] or all_scopes
+
+    cycle_start_str = start_date.strip() if start_date.strip() else date.today().replace(day=1).isoformat()
+    cycle_end_str = end_date.strip() if end_date.strip() else date.today().isoformat()
 
     def _normalize_model(name: str) -> str:
         """Normalize model names that GitHub returns inconsistently.
@@ -2451,8 +2461,6 @@ async def get_usage_monitor(
 
     if scope_users is not None:
         # When group scope is active, build model aggregates from per-user data
-        cycle_start_str = date.today().replace(day=1).isoformat()
-        cycle_end_str = date.today().isoformat()
         for scope in scopes:
             uu = data_collector.load_daily_usage_users(scope, start_day=cycle_start_str, end_day=cycle_end_str)
             if not uu:
@@ -2490,8 +2498,6 @@ async def get_usage_monitor(
                     model_lang[(m, lang)]["code_accept"] += lm.get("code_acceptance_activity_count", 0)
                     model_lang[(m, lang)]["loc_suggested"] += lm.get("loc_suggested_to_add_sum", 0)
     else:
-        cycle_start_str = date.today().replace(day=1).isoformat()
-        cycle_end_str = date.today().isoformat()
         for scope in scopes:
             usage = data_collector.load_daily_usage(scope, start_day=cycle_start_str, end_day=cycle_end_str)
             if not usage:
@@ -2905,6 +2911,8 @@ async def get_roi_dashboard(
     request: Request,
     orgs: str = Query(default="", description="Comma-separated org/enterprise slugs; empty = all"),
     group_id: int = Query(default=0),
+    start_date: str = Query(default="", description="Start date, e.g. '2026-06-01'. Empty = 1st of current month."),
+    end_date: str = Query(default="", description="End date, e.g. '2026-06-08'. Empty = today."),
 ):
     """Return ROI and acceptance-rate dashboard metrics."""
     empty_response = {
@@ -2927,8 +2935,8 @@ async def get_roi_dashboard(
         scope_users = _get_scope_usernames(request, group_id or None)
         selected = _get_selected_scope_names(orgs)
 
-        cycle_start_str = date.today().replace(day=1).isoformat()
-        cycle_end_str = date.today().isoformat()
+        cycle_start_str = start_date.strip() if start_date.strip() else date.today().replace(day=1).isoformat()
+        cycle_end_str = end_date.strip() if end_date.strip() else date.today().isoformat()
 
         daily_agg: dict[str, dict] = {}
         user_agg: dict[str, dict] = defaultdict(lambda: {

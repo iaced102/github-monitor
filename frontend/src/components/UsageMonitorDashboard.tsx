@@ -69,7 +69,7 @@ function friendlyFeature(f: string): string {
 export function UsageMonitorDashboard({ refreshKey: _refreshKey, selectedOrgs }: Props) {
   const { t } = useI18n();
   const ui = useUIState();
-  const { data, loading } = useUsageMonitor(selectedOrgs, ui.selectedGroupId);
+  const { data, loading } = useUsageMonitor(selectedOrgs, ui.selectedGroupId, ui.dashboardDateFrom || undefined, ui.dashboardDateTo || undefined);
   const isGroupFiltered = !!ui.selectedGroupId;
   const [userSearch, setUserSearch] = useState("");
   const [userSort, setUserSort] = useState<"total" | string>("total");
