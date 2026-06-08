@@ -125,7 +125,7 @@ export function OverviewPanel() {
                         <th>Plan</th>
                         <th>Inactive</th>
                         <th>Đơn giá</th>
-                        <th>Lãng phí/tháng</th>
+                        <th>Chưa khai thác/tháng</th>
                       </tr>
                     </thead>
                     <tbody>
@@ -138,7 +138,7 @@ export function OverviewPanel() {
                         </tr>
                       ))}
                       <tr style={{ borderTop: "1px solid var(--border)", fontWeight: 600 }}>
-                        <td colSpan={3}>Tổng lãng phí</td>
+                        <td colSpan={3}>Tổng chưa khai thác</td>
                         <td className="info-metric-example">${overview.monthly_waste.toLocaleString()}/tháng</td>
                       </tr>
                     </tbody>

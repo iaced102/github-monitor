@@ -58,7 +58,12 @@ class APIManager:
                     orgs = app_info["orgs"]
                 else:
                     user = await api.discover_user()
-                    orgs = await api.discover_orgs()
+                    # Org discovery may fail with 403 if PAT lacks read:org scope
+                    try:
+                        orgs = await api.discover_orgs()
+                    except Exception as e:
+                        print(f"[APIManager] Org discovery failed (PAT may lack read:org scope): {e}")
+                        orgs = []
 
                 self._discovered_users[pat_id] = user
                 print(f"[APIManager] PAT '{pat['label']}' authenticated as: {user.get('login', 'unknown')}")

@@ -43,10 +43,10 @@ export const INFO: Record<string, InfoContent> = {
     tip: "Chi phí = Total Seats × Đơn giá. Giảm inactive seats để tối ưu ngay lập tức.",
   },
   kpi_waste: {
-    title: "Lãng phí Hàng tháng (Monthly Waste)",
-    description: "Số tiền bị lãng phí cho các seats không được sử dụng trong chu kỳ billing hiện tại (từ ngày 1 đến hôm nay).",
+    title: "Chi phí chưa khai thác hàng tháng (Monthly Waste)",
+    description: "Số tiền chưa khai thác cho các seats không được sử dụng trong chu kỳ billing hiện tại (từ ngày 1 đến hôm nay).",
     metrics: [
-      { name: "Công thức", desc: "Inactive Seats (trong chu kỳ) × Đơn giá/seat", example: "15 inactive × $19 = $285/tháng lãng phí" },
+      { name: "Công thức", desc: "Inactive Seats (trong chu kỳ) × Đơn giá/seat", example: "15 inactive × $19 = $285/tháng chưa khai thác" },
     ],
     tip: "Thu hồi inactive seats để giảm waste. Lưu ý: đầu chu kỳ (ngày 1–7) waste có thể bị thổi phồng vì nhiều user chưa kịp hoạt động.",
   },
@@ -664,11 +664,11 @@ export const INFO: Record<string, InfoContent> = {
   kpi_overview_monthly_cost: {
     title: "Chi phí tháng (Monthly Cost)",
     description: "Tổng chi phí license GitHub Copilot ước tính hàng tháng, tính trên số seats được gán theo đơn giá từng plan: Business $19/user/tháng, Enterprise $39/user/tháng. Chi phí thực tế có thể khác nếu có discount hoặc enterprise billing riêng.",
-    tip: "Giảm inactive seats để giảm chi phí ngay lập tức. Mỗi inactive user Enterprise = $39/tháng lãng phí.",
+    tip: "Giảm inactive seats để giảm chi phí ngay lập tức. Mỗi inactive user Enterprise = $39/tháng chưa khai thác.",
   },
   kpi_overview_monthly_waste: {
-    title: "Lãng phí tháng (Monthly Waste)",
-    description: "Chi phí bị lãng phí cho các users có license nhưng không sử dụng Copilot trong chu kỳ billing hiện tại (từ ngày 1 đến hôm nay). Công thức: Inactive Users × Đơn giá/user. Thu hồi tất cả inactive seats sẽ tiết kiệm được số này mỗi tháng.",
+    title: "Chi phí chưa khai thác tháng (Monthly Waste)",
+    description: "Chi phí chưa khai thác cho các users có license nhưng không sử dụng Copilot trong chu kỳ billing hiện tại (từ ngày 1 đến hôm nay). Công thức: Inactive Users × Đơn giá/user. Thu hồi tất cả inactive seats sẽ tiết kiệm được số này mỗi tháng.",
     tip: "Đầu chu kỳ (ngày 1–7) waste tự nhiên sẽ cao. Sau ngày 7, thu hồi license của users vẫn không dùng. Dùng tính năng Lifecycle hoặc AI Chat để tạo recommendation tự động.",
   },
 

@@ -878,7 +878,7 @@ const translations = {
     "chat.ai": "OctoFinance AI",
     "chat.tipsTitle": "Thử hỏi:",
     "chat.tip1": "\"Người dùng nào chưa dùng Copilot trong 30 ngày?\"",
-    "chat.tip2": "\"Chúng ta đang lãng phí bao nhiêu vào ghế không hoạt động?\"",
+    "chat.tip2": "\"Chúng ta đang có bao nhiêu chi phí chưa khai thác vào ghế không hoạt động?\"",
     "chat.tip3": "\"So sánh tỷ lệ chấp nhận giữa các team.\"",
 
     // Quick Prompts
@@ -887,7 +887,7 @@ const translations = {
     "qp.inactive": "Người dùng không hoạt động",
     "qp.inactivePrompt": "Tìm tất cả người dùng chưa sử dụng Copilot trong 30 ngày qua. Hiển thị tác động chi phí.",
     "qp.costOpt": "Tối ưu chi phí",
-    "qp.costOptPrompt": "Phân tích chi tiêu Copilot và đề xuất cách giảm lãng phí.",
+    "qp.costOptPrompt": "Phân tích chi tiêu Copilot và đề xuất cách giảm chi phí chưa khai thác.",
     "qp.roi": "Phân tích ROI",
     "qp.roiPrompt": "Tính toán ROI của khoản đầu tư Copilot. Chúng ta có nhận được giá trị không?",
 
@@ -898,7 +898,7 @@ const translations = {
     "sidebar.inactive": "Không hoạt động",
     "sidebar.utilization": "Tỷ lệ sử dụng",
     "sidebar.monthlyCost": "Chi phí tháng",
-    "sidebar.monthlyWaste": "Lãng phí tháng",
+    "sidebar.monthlyWaste": "Chi phí chưa khai thác",
     "sidebar.organizations": "Tổ chức",
     "sidebar.noOrgs": "Chưa tìm thấy tổ chức",
     "sidebar.noCopilot": "Không có Copilot",
@@ -908,7 +908,7 @@ const translations = {
     "sort.seats": "Users có license",
     "sort.active": "Hoạt động (chu kỳ)",
     "sort.inactive": "Không hoạt động",
-    "sort.waste": "Lãng phí",
+    "sort.waste": "Chưa khai thác",
     "sort.seatsUnit": "users",
     "sort.activeUnit": "active",
 
@@ -1156,12 +1156,12 @@ const translations = {
     // Alerts
     "alerts.title": "Cảnh báo",
     "alerts.noAlerts": "Không có cảnh báo. Tất cả ngưỡng trong giới hạn.",
-    "alerts.noAlertsHint": "Dùng ⚙ Cấu hình để thiết lập ngưỡng cho người dùng inactive, lãng phí chi phí và acceptance rate.",
+    "alerts.noAlertsHint": "Dùng ⚙ Cấu hình để thiết lập ngưỡng cho người dùng inactive, chi phí chưa khai thác và acceptance rate.",
     "alerts.critical": "Nghiêm trọng",
     "alerts.warning": "Cảnh báo",
     "alerts.configure": "Cấu hình",
     "alerts.inactiveRate": "Ngưỡng tỷ lệ inactive (%)",
-    "alerts.costWastePct": "Ngưỡng lãng phí chi phí (%)",
+    "alerts.costWastePct": "Ngưỡng chi phí chưa khai thác (%)",
     "alerts.acceptanceRate": "Acceptance rate tối thiểu (%)",
     "alerts.noActiveDays": "Ngưỡng ngày không có user active",
     "alerts.warnLevel": "Cảnh báo",
