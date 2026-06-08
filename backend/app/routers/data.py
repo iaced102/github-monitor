@@ -2395,8 +2395,9 @@ async def get_usage_monitor(
     request: Request,
     orgs: str = Query(default="", description="Comma-separated org slugs; empty = all"),
     group_id: int = Query(default=0),
-    start_date: str = Query(default="", description="Start date, e.g. '2026-06-01'. Empty = 1st of current month."),
-    end_date: str = Query(default="", description="End date, e.g. '2026-06-08'. Empty = today."),
+    month: str = Query(default="", description="Billing cycle month, e.g. '2026-05'. Empty = current month."),
+    start_date: str = Query(default="", description="Start date override."),
+    end_date: str = Query(default="", description="End date override."),
 ):
     """Aggregate model/user usage analytics from cached usage data."""
     from collections import defaultdict
@@ -2407,10 +2408,22 @@ async def get_usage_monitor(
     all_scopes = _get_all_scope_names()
     scopes = [s for s in all_scopes if not org_filter or s in org_filter] or all_scopes
 
-    cycle_start_str = start_date.strip() if start_date.strip() else date.today().replace(day=1).isoformat()
-    cycle_end_str = end_date.strip() if end_date.strip() else date.today().isoformat()
-    _cs = date.fromisoformat(cycle_start_str)
-    _ce = date.fromisoformat(cycle_end_str)
+    import calendar as _cal
+    if start_date.strip() and end_date.strip():
+        _cs = date.fromisoformat(start_date.strip())
+        _ce = date.fromisoformat(end_date.strip())
+    elif month.strip():
+        try:
+            parts = month.strip().split("-")
+            m_year, m_month = int(parts[0]), int(parts[1])
+            _cs = date(m_year, m_month, 1)
+            _ce = date(m_year, m_month, _cal.monthrange(m_year, m_month)[1])
+        except (ValueError, IndexError):
+            _cs = date.today().replace(day=1)
+            _ce = date.today()
+    else:
+        _cs = date.today().replace(day=1)
+        _ce = date.today()
     if _ce > date.today():
         _ce = date.today()
     if _cs > _ce:
@@ -2925,8 +2938,9 @@ async def get_roi_dashboard(
     request: Request,
     orgs: str = Query(default="", description="Comma-separated org/enterprise slugs; empty = all"),
     group_id: int = Query(default=0),
-    start_date: str = Query(default="", description="Start date, e.g. '2026-06-01'. Empty = 1st of current month."),
-    end_date: str = Query(default="", description="End date, e.g. '2026-06-08'. Empty = today."),
+    month: str = Query(default="", description="Billing cycle month, e.g. '2026-05'. Empty = current month."),
+    start_date: str = Query(default="", description="Start date override."),
+    end_date: str = Query(default="", description="End date override."),
 ):
     """Return ROI and acceptance-rate dashboard metrics."""
     empty_response = {
@@ -2949,10 +2963,22 @@ async def get_roi_dashboard(
         scope_users = _get_scope_usernames(request, group_id or None)
         selected = _get_selected_scope_names(orgs)
 
-        cycle_start_str = start_date.strip() if start_date.strip() else date.today().replace(day=1).isoformat()
-        cycle_end_str = end_date.strip() if end_date.strip() else date.today().isoformat()
-        _cs = date.fromisoformat(cycle_start_str)
-        _ce = date.fromisoformat(cycle_end_str)
+        import calendar
+        if start_date.strip() and end_date.strip():
+            _cs = date.fromisoformat(start_date.strip())
+            _ce = date.fromisoformat(end_date.strip())
+        elif month.strip():
+            try:
+                parts = month.strip().split("-")
+                m_year, m_month = int(parts[0]), int(parts[1])
+                _cs = date(m_year, m_month, 1)
+                _ce = date(m_year, m_month, calendar.monthrange(m_year, m_month)[1])
+            except (ValueError, IndexError):
+                _cs = date.today().replace(day=1)
+                _ce = date.today()
+        else:
+            _cs = date.today().replace(day=1)
+            _ce = date.today()
         if _ce > date.today():
             _ce = date.today()
         if _cs > _ce:

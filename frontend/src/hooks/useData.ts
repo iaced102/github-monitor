@@ -101,8 +101,7 @@ export function useDashboard(selectedOrgs: string[], groupId?: number | null, st
       const qp = new URLSearchParams();
       if (selectedOrgs.length > 0) qp.set("orgs", selectedOrgs.join(","));
       if (groupId) qp.set("group_id", String(groupId));
-      if (startDate) qp.set("start_date", startDate);
-      if (endDate) qp.set("end_date", endDate);
+      if (startDate) qp.set("month", startDate);
       const res = await fetch(`/api/data/dashboard?${qp}`);
       const json = await res.json();
       setData(json);
@@ -245,8 +244,7 @@ export function useRoiDashboard(selectedOrgs: string[], groupId?: number | null,
       const qp = new URLSearchParams();
       if (selectedOrgs.length > 0) qp.set("orgs", selectedOrgs.join(","));
       if (groupId) qp.set("group_id", String(groupId));
-      if (startDate) qp.set("start_date", startDate);
-      if (endDate) qp.set("end_date", endDate);
+      if (startDate) qp.set("month", startDate);
       const res = await fetch(`/api/data/roi?${qp}`);
       setData(await res.json());
     } catch { setData(null); }
@@ -299,8 +297,7 @@ export function useUsageMonitor(selectedOrgs: string[], groupId?: number | null,
       const qp = new URLSearchParams();
       if (selectedOrgs.length > 0) qp.set("orgs", selectedOrgs.join(","));
       if (groupId) qp.set("group_id", String(groupId));
-      if (startDate) qp.set("start_date", startDate);
-      if (endDate) qp.set("end_date", endDate);
+      if (startDate) qp.set("month", startDate);
       const res = await fetch(`/api/data/usage-monitor?${qp}`);
       const json = await res.json();
       setData(json);

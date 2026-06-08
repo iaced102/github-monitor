@@ -29,7 +29,6 @@ export function UnifiedDashboard({ refreshKey }: Props) {
   const selectedOrgs = ui.dashboardSelectedOrgs ?? [];
   const isSuperAdmin = currentUser?.role === "super_admin";
   const dateFrom = ui.dashboardDateFrom;
-  const dateTo = ui.dashboardDateTo;
 
   // Redirect managers away from the groups-admin tab
   useEffect(() => {
@@ -70,16 +69,15 @@ export function UnifiedDashboard({ refreshKey }: Props) {
         {tab !== "groups" && <GroupFilter />}
       </div>
 
-      {/* Date range filter — shown on all data tabs */}
+      {/* Month filter — shown on all data tabs */}
       {tab !== "groups" && (
         <div className="dashboard-filters" style={{ marginBottom: 8 }}>
           <div className="dashboard-filter-group">
-            <input type="date" className="dashboard-date-input" value={dateFrom} max={new Date().toISOString().slice(0, 10)} onChange={(e) => ui.patch({ dashboardDateFrom: e.target.value })} />
-            <span className="dashboard-date-sep">—</span>
-            <input type="date" className="dashboard-date-input" value={dateTo} max={new Date().toISOString().slice(0, 10)} onChange={(e) => ui.patch({ dashboardDateTo: e.target.value })} />
-            {(dateFrom || dateTo) && (
+            <label style={{ fontSize: 12 }}>Chu kỳ:</label>
+            <input type="month" className="dashboard-date-input" value={dateFrom} max={new Date().toISOString().slice(0, 7)} onChange={(e) => ui.patch({ dashboardDateFrom: e.target.value, dashboardDateTo: "" })} />
+            {dateFrom && (
               <button onClick={() => ui.patch({ dashboardDateFrom: "", dashboardDateTo: "" })} style={{ marginLeft: 6, fontSize: 11, cursor: "pointer", background: "none", border: "1px solid var(--border)", borderRadius: 4, padding: "2px 8px" }}>
-                Reset
+                Tháng hiện tại
               </button>
             )}
           </div>
