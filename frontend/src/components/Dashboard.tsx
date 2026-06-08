@@ -1,4 +1,4 @@
-import { useState, useMemo, useEffect, useCallback } from "react";
+import { useState, useMemo, useCallback } from "react";
 import {
   AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
   BarChart, Bar, PieChart, Pie, Cell, Legend, LineChart, Line,
@@ -62,7 +62,8 @@ export function Dashboard({ refreshKey }: Props) {
   const { t } = useI18n();
   const ui = useUIState();
   const selectedOrgs = ui.dashboardSelectedOrgs;
-  const { data, loading } = useDashboard(selectedOrgs ?? [], ui.selectedGroupId);
+  const [selectedMonth, setSelectedMonth] = useState<string>("");
+  const { data, loading } = useDashboard(selectedOrgs ?? [], ui.selectedGroupId, selectedMonth || undefined);
   const { trend } = useKpiTrend(selectedOrgs ?? [], ui.selectedGroupId);
   const [drilldownUser, setDrilldownUser] = useState<string | null>(null);
   const [selectedFeature, setSelectedFeature] = useState<string | null>(null);
@@ -70,31 +71,10 @@ export function Dashboard({ refreshKey }: Props) {
   const [seatFilterStatus, setSeatFilterStatus] = useState<string>("all");
   const [seatSort, setSeatSort] = useState<{ col: string; dir: "asc" | "desc" }>({ col: "", dir: "asc" });
 
-  const dateFrom = ui.dashboardDateFrom;
-  const setDateFrom = useCallback((v: string) => ui.patch({ dashboardDateFrom: v }), [ui.patch]);
-  const dateTo = ui.dashboardDateTo;
-  const setDateTo = useCallback((v: string) => ui.patch({ dashboardDateTo: v }), [ui.patch]);
-
-  // Auto-sync date filter when data range doesn't overlap with stored filter
-  useEffect(() => {
-    if (!data?.date_range?.start || !data?.date_range?.end) return;
-    const rangeStart = data.date_range.start;
-    const rangeEnd = data.date_range.end;
-    const needsReset =
-      (dateFrom && (dateFrom > rangeEnd || dateFrom < rangeStart)) ||
-      (dateTo && (dateTo < rangeStart || dateTo > rangeEnd));
-    if (needsReset) {
-      ui.patch({ dashboardDateFrom: rangeStart, dashboardDateTo: rangeEnd });
-    }
-  }, [data?.date_range?.start, data?.date_range?.end]);
-
   const filteredTrend = useMemo(() => {
     if (!data) return [];
-    let trend = data.daily_trend;
-    if (dateFrom) trend = trend.filter((d) => d.day >= dateFrom);
-    if (dateTo) trend = trend.filter((d) => d.day <= dateTo);
-    return trend;
-  }, [data, dateFrom, dateTo]);
+    return data.daily_trend;
+  }, [data]);
 
   const allOrgs = data?.orgs || [];
 
@@ -137,9 +117,13 @@ export function Dashboard({ refreshKey }: Props) {
       {/* Filters */}
       <div className="dashboard-filters">
         <div className="dashboard-filter-group">
-          <input type="date" className="dashboard-date-input" value={dateFrom || data?.date_range?.start || ""} onChange={(e) => setDateFrom(e.target.value)} />
-          <span className="dashboard-date-sep">—</span>
-          <input type="date" className="dashboard-date-input" value={dateTo || data?.date_range?.end || ""} onChange={(e) => setDateTo(e.target.value)} />
+          <label>Chu kỳ billing:</label>
+          <input type="month" className="dashboard-date-input" value={selectedMonth} onChange={(e) => setSelectedMonth(e.target.value)} />
+          {selectedMonth && (
+            <button className="dashboard-reset-btn" onClick={() => setSelectedMonth("")} style={{ marginLeft: 6, fontSize: 11, cursor: "pointer", background: "none", border: "1px solid var(--border)", borderRadius: 4, padding: "2px 8px" }}>
+              Tháng hiện tại
+            </button>
+          )}
         </div>
         <div className="dashboard-filter-group" style={{ marginLeft: "auto" }}>
           <PeriodicReportButton selectedOrgs={selectedOrgs ?? allOrgs} />

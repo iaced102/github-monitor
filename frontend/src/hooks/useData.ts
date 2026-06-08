@@ -91,7 +91,7 @@ export function useSync() {
   return { sync };
 }
 
-export function useDashboard(selectedOrgs: string[], groupId?: number | null) {
+export function useDashboard(selectedOrgs: string[], groupId?: number | null, month?: string) {
   const [data, setData] = useState<DashboardData | null>(null);
   const [loading, setLoading] = useState(true);
 
@@ -101,6 +101,7 @@ export function useDashboard(selectedOrgs: string[], groupId?: number | null) {
       const qp = new URLSearchParams();
       if (selectedOrgs.length > 0) qp.set("orgs", selectedOrgs.join(","));
       if (groupId) qp.set("group_id", String(groupId));
+      if (month) qp.set("month", month);
       const res = await fetch(`/api/data/dashboard?${qp}`);
       const json = await res.json();
       setData(json);
@@ -109,7 +110,7 @@ export function useDashboard(selectedOrgs: string[], groupId?: number | null) {
     } finally {
       setLoading(false);
     }
-  }, [selectedOrgs.join(","), groupId]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [selectedOrgs.join(","), groupId, month]); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
     fetchDashboard();
