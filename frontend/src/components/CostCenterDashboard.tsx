@@ -293,7 +293,7 @@ export function CostCenterDashboard({ refreshKey: _ }: Props) {
   }, [enterprise]);
 
   const { data, loading } = useCostCenterDashboard({
-    enterprise, costCenters, state, search: ui.ccDashSearch, groupId: ui.selectedGroupId,
+    enterprise, costCenters, state, search: ui.ccDashSearch, groupId: ui.selectedGroupId, month: ui.dashboardDateFrom || undefined,
   });
 
   const setEnterprise = useCallback(

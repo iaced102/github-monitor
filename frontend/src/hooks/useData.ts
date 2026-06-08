@@ -157,6 +157,7 @@ export function useCostCenterDashboard(params: {
   state: string;
   search: string;
   groupId?: number | null;
+  month?: string;
 }) {
   const [data, setData] = useState<CostCenterDashboardData | null>(null);
   const [loading, setLoading] = useState(true);
@@ -170,6 +171,7 @@ export function useCostCenterDashboard(params: {
       if (params.state) qp.set("state", params.state);
       if (params.search) qp.set("search", params.search);
       if (params.groupId) qp.set("group_id", String(params.groupId));
+      if (params.month) qp.set("month", params.month);
       const res = await fetch(`/api/data/cost-center-dashboard?${qp}`);
       const json = await res.json();
       setData(json);
@@ -178,7 +180,7 @@ export function useCostCenterDashboard(params: {
     } finally {
       setLoading(false);
     }
-  }, [params.enterprise, params.costCenters.join(","), params.state, params.search, params.groupId]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [params.enterprise, params.costCenters.join(","), params.state, params.search, params.groupId, params.month]); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
     fetchData();
@@ -213,8 +215,7 @@ export function useCsvDashboard(params: {
       if (params.costCenters.length) qp.set("cost_centers", params.costCenters.join(","));
       if (params.products.length) qp.set("products", params.products.join(","));
       if (params.skus.length) qp.set("skus", params.skus.join(","));
-      if (params.dateFrom) qp.set("date_from", params.dateFrom);
-      if (params.dateTo) qp.set("date_to", params.dateTo);
+      if (params.dateFrom) qp.set("month", params.dateFrom);
       if (params.groupId) qp.set("group_id", String(params.groupId));
       const res = await fetch(`/api/data/csv-dashboard?${qp}`);
       const json = await res.json();

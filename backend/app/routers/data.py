@@ -905,11 +905,25 @@ async def get_dashboard(
 # API-sourced activity/premium helpers (fallback when no CSV uploaded)
 # ---------------------------------------------------------------------------
 
-def _build_api_usage_section(scope_users: set[str] | None = None) -> dict:
+def _build_api_usage_section(scope_users: set[str] | None = None, month: str = "") -> dict:
     """Build per-user activity report from API-synced usage_users data (billing cycle)."""
     all_scope_names = _get_all_scope_names()
-    cycle_start_str = date.today().replace(day=1).isoformat()
-    cycle_end_str = date.today().isoformat()
+    import calendar as _cal
+    if month.strip():
+        try:
+            parts = month.strip().split("-")
+            m_year, m_month = int(parts[0]), int(parts[1])
+            cycle_start_str = date(m_year, m_month, 1).isoformat()
+            end_day = date(m_year, m_month, _cal.monthrange(m_year, m_month)[1])
+            if end_day > date.today():
+                end_day = date.today()
+            cycle_end_str = end_day.isoformat()
+        except (ValueError, IndexError):
+            cycle_start_str = date.today().replace(day=1).isoformat()
+            cycle_end_str = date.today().isoformat()
+    else:
+        cycle_start_str = date.today().replace(day=1).isoformat()
+        cycle_end_str = date.today().isoformat()
     user_agg: dict[str, dict] = defaultdict(lambda: {
         "interactions": 0, "code_gen": 0, "code_accept": 0,
         "loc_suggested": 0, "loc_accepted": 0, "days_active": 0,
@@ -1043,15 +1057,29 @@ def _build_org_billing_models(all_scope_names: list[str]) -> dict:
     }
 
 
-def _build_api_premium_section(scope_users: set[str] | None = None) -> dict:
+def _build_api_premium_section(scope_users: set[str] | None = None, month: str = "") -> dict:
     """Build model usage stats from API-synced data (billing cycle).
 
     Priority: AI Credits (real billing) > legacy premium_requests > activity fallback.
     All paths support scope_users filtering.
     """
     all_scope_names = _get_all_scope_names()
-    cycle_start_str = date.today().replace(day=1).isoformat()
-    cycle_end_str = date.today().isoformat()
+    import calendar as _cal
+    if month.strip():
+        try:
+            parts = month.strip().split("-")
+            m_year, m_month = int(parts[0]), int(parts[1])
+            cycle_start_str = date(m_year, m_month, 1).isoformat()
+            end_day = date(m_year, m_month, _cal.monthrange(m_year, m_month)[1])
+            if end_day > date.today():
+                end_day = date.today()
+            cycle_end_str = end_day.isoformat()
+        except (ValueError, IndexError):
+            cycle_start_str = date.today().replace(day=1).isoformat()
+            cycle_end_str = date.today().isoformat()
+    else:
+        cycle_start_str = date.today().replace(day=1).isoformat()
+        cycle_end_str = date.today().isoformat()
 
     # --- Try AI Credits data first (new billing model, June 2026+) ---
     ai_credits_data = None
@@ -1385,6 +1413,7 @@ async def get_csv_dashboard(
     skus: str = Query(default=""),
     date_from: str = Query(default=""),
     date_to: str = Query(default=""),
+    month: str = Query(default="", description="Billing cycle month, e.g. '2026-05'. Overrides date_from/date_to."),
     group_id: int = Query(default=0),
 ):
     """Aggregated dashboard data derived entirely from uploaded CSVs."""
@@ -1423,8 +1452,8 @@ async def get_csv_dashboard(
     return {
         "premium_csv": premium,
         "usage_report": usage,
-        "api_usage": _build_api_usage_section(scope_users=scope_users),
-        "api_premium": _build_api_premium_section(scope_users=scope_users),
+        "api_usage": _build_api_usage_section(scope_users=scope_users, month=month),
+        "api_premium": _build_api_premium_section(scope_users=scope_users, month=month),
         "filters": {
             "orgs": sorted(all_orgs),
             "cost_centers": sorted(all_ccs),
@@ -2052,6 +2081,7 @@ async def get_cost_center_dashboard(
     state: str = Query(default="active"),
     search: str = Query(default=""),
     group_id: int = Query(default=0),
+    month: str = Query(default="", description="Billing cycle month, e.g. '2026-05'. Empty = current month."),
 ):
     """Return cost center dashboard data from synced JSON files.
 
@@ -2147,7 +2177,7 @@ async def get_cost_center_dashboard(
     user_map = sorted(user_cc_map.values(), key=lambda u: u["login"].lower())
 
     # Build seat_fallback: seat data + activity metrics per user (shown when no cost centers)
-    seat_fallback = _build_seat_fallback(selected_slug, scope_users=scope_users)
+    seat_fallback = _build_seat_fallback(selected_slug, scope_users=scope_users, month=month)
 
     return {
         "enterprises": enterprise_list,
@@ -2162,15 +2192,29 @@ async def get_cost_center_dashboard(
     }
 
 
-def _build_seat_fallback(scope: str, scope_users: set[str] | None = None) -> dict:
+def _build_seat_fallback(scope: str, scope_users: set[str] | None = None, month: str = "") -> dict:
     """Build per-user seat + activity data for use when enterprise has no cost centers."""
     seats_data = data_collector.load_latest("seats", scope)
     if not seats_data:
         return {"has_data": False, "users": [], "total_seats": 0}
 
-    # Build activity map from usage_users (billing cycle)
-    cycle_start_str = date.today().replace(day=1).isoformat()
-    cycle_end_str = date.today().isoformat()
+    # Build activity map from usage_users (billing cycle or month)
+    import calendar as _cal
+    if month.strip():
+        try:
+            parts = month.strip().split("-")
+            m_year, m_month = int(parts[0]), int(parts[1])
+            cycle_start_str = date(m_year, m_month, 1).isoformat()
+            end_day = date(m_year, m_month, _cal.monthrange(m_year, m_month)[1])
+            if end_day > date.today():
+                end_day = date.today()
+            cycle_end_str = end_day.isoformat()
+        except (ValueError, IndexError):
+            cycle_start_str = date.today().replace(day=1).isoformat()
+            cycle_end_str = date.today().isoformat()
+    else:
+        cycle_start_str = date.today().replace(day=1).isoformat()
+        cycle_end_str = date.today().isoformat()
     activity_map: dict[str, dict] = {}
     uu = data_collector.load_daily_usage_users(scope, start_day=cycle_start_str, end_day=cycle_end_str)
     if uu:
