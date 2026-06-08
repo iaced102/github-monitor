@@ -255,12 +255,12 @@ export interface ApiUsageSection {
 
 export interface ApiPremiumSection {
   has_data: boolean;
-  source?: "billing" | "activity";
+  source?: "billing" | "activity" | "ai_credits";
   models: { model: string; gross_qty: number; net_qty: number; gross_amount: number; net_amount: number; interactions?: number; code_gen?: number; code_accept?: number }[];
   total_requests: number;
   net_requests: number;
   total_cost: number;
-  users?: { user: string; activity: number; pct: number; top_model?: string; quota?: number; quota_pct?: number; source?: string }[];
+  users?: { user: string; activity?: number; gross_credits?: number; pct: number; top_model?: string; quota?: number; quota_pct?: number; source?: string }[];
   billing_models?: { model: string; gross_qty: number; net_qty: number; gross_amount: number; net_amount: number }[];
   billing_total_requests?: number;
   billing_net_requests?: number;

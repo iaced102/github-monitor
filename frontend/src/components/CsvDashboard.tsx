@@ -95,6 +95,7 @@ function Section({ sectionKey, title, infoKey, defaultOpen = true, children }: {
 function ApiPremiumContent({ data }: { data: ApiPremiumSection }) {
   const { t } = useI18n();
   const isActivity = data.source === "activity";
+  const isAiCredits = data.source === "ai_credits";
   const hasBillingContext = isActivity && data.billing_models && data.billing_models.length > 0;
 
   // Build pie chart data for cost distribution (billing mode only)
@@ -125,15 +126,15 @@ function ApiPremiumContent({ data }: { data: ApiPremiumSection }) {
           <>
             <div className="stat-card">
               <div className="stat-value">{Math.round(data.total_requests).toLocaleString()}</div>
-              <div className="stat-label">{t("csvDash.totalRequests")}</div>
+              <div className="stat-label">{isAiCredits ? "AI Credits (Gross)" : t("csvDash.totalRequests")}</div>
             </div>
             <div className="stat-card">
               <div className="stat-value">{Math.round(data.net_requests).toLocaleString()}</div>
-              <div className="stat-label">{t("csvDash.netRequests")}</div>
+              <div className="stat-label">{isAiCredits ? "Overage Credits" : t("csvDash.netRequests")}</div>
             </div>
             <div className="stat-card cost">
               <div className="stat-value cost">${data.total_cost.toFixed(2)}</div>
-              <div className="stat-label">{t("csvDash.totalCost")}</div>
+              <div className="stat-label">{isAiCredits ? "Chi phí vượt pool" : t("csvDash.totalCost")}</div>
             </div>
           </>
         )}
@@ -283,7 +284,7 @@ function ApiPremiumContent({ data }: { data: ApiPremiumSection }) {
                         <th>#</th>
                         <th>{t("csvDash.user")}</th>
                         <th>{t("monitor.topModel")}</th>
-                        <th>{t("csvDash.totalRequests")}</th>
+                        <th>{isAiCredits ? "AI Credits" : t("csvDash.totalRequests")}</th>
                         {hasBilling && <th>{t("csvDash.quota")}</th>}
                         {hasBilling
                           ? <th style={{ minWidth: 160 }}>{t("csvDash.quotaUsage")}</th>
@@ -300,7 +301,7 @@ function ApiPremiumContent({ data }: { data: ApiPremiumSection }) {
                             <td className="rank">{i + 1}</td>
                             <td className="user-name">{u.user}</td>
                             <td style={{ fontSize: 11, color: "var(--text-muted)" }}>{u.top_model || "—"}</td>
-                            <td>{u.activity.toLocaleString()}</td>
+                            <td>{(u.activity ?? u.gross_credits ?? 0).toLocaleString()}</td>
                             {hasBilling && <td style={{ fontSize: 11 }}>{u.quota?.toLocaleString() ?? "—"}</td>}
                             <td>
                               <div style={{ display: "flex", alignItems: "center", gap: 6 }}>

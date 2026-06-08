@@ -222,17 +222,20 @@ OctoFinance Groups
 
 ---
 
-#### Tab "Yêu cầu cao cấp" — Model & Cost Analysis
+#### Tab "Yêu cầu cao cấp" — AI Credits & Cost Analysis
 
 | Section | Thông tin | Ứng dụng |
 |---------|-----------|----------|
-| KPI tổng hợp | Total interactions, code gen, models used | Quick overview model diversity |
-| Phân tích mô hình | Activity per model (bar chart) | Xem model nào tốn quota nhiều nhất |
-| Model share (pie) | % phân bổ theo model | Identify model dominance |
+| KPI tổng hợp | AI Credits (Gross), Overage, Chi phí vượt pool, Số model | Biết ngay pool đã dùng bao nhiêu |
+| Pool utilization | Total pool, % đã dùng, overage cost | Cảnh báo hết pool |
+| Phân tích mô hình | Credits consumed per model (bar + pie chart) | Xem model nào tốn credits nhiều nhất |
+| Chi tiết người dùng | Per-user credits, top model, % tổng | Ai tiêu nhiều nhất, dùng model gì |
 
 **Cách vận dụng:**
-- Model đắt (Claude Opus, GPT-5.5) chiếm tỷ lệ cao → cảnh báo cost overrun
-- Có thể set policy giới hạn model premium cho specific teams/users
+- Model đắt (Claude Opus ~$5/1M input, ~$25/1M output) chiếm tỷ lệ cao → cảnh báo cost
+- User chiếm > 20% pool → cần set user-level budget trên GitHub
+- Pool > 80% mà còn nửa tháng → nguy cơ bị block hoặc phát sinh overage cost
+- Filter theo nhóm → biết phòng nào tiêu nhiều credits
 
 ---
 
@@ -363,19 +366,24 @@ OctoFinance Groups
 
 #### UC4: "User nào đang tiêu tốn nhiều AI Credits nhất?"
 
-**Bước 1**: Tab **Giám sát** → Bảng "User × Model"
-- Sort theo tổng activity → user có bar dài nhất = dùng nhiều nhất
-- Xem màu sắc → nhiều Opus/GPT-5.5 = model đắt
+**Bước 1**: Tab **Yêu cầu cao cấp** → Bảng "Chi tiết người dùng"
+- Bảng hiển thị per-user AI Credits thật (từ GitHub Billing API)
+- Sort sẵn theo credits giảm dần
+- Xem cột "AI Credits" và "% Tổng"
+- User chiếm > 20% → tiêu tốn nhiều
 
-**Bước 2**: Tab **Yêu cầu cao cấp** → Bảng "Phân tích mô hình"
-- Xem model nào chiếm phần lớn activity
-- Claude Opus tốn ~5× so với Sonnet → cùng số interactions nhưng cost gấp 5
+**Bước 2**: Tab **Yêu cầu cao cấp** → Cột "Model phổ biến nhất"
+- User dùng Claude Opus → tiêu credits rất nhanh ($5/1M input vs $3/1M Sonnet)
+- User dùng GPT-5.3-Codex hoặc Gemini → chi phí thấp hơn nhiều
 
-**Bước 3**: Tab **Chỉ số sử dụng** → Bảng "Người dùng hoạt động nhất"
-- Click user nghi vấn → xem detail breakdown
-- Cột "Agent ✓" → user dùng Agent Mode → tiêu credits rất nhanh (nhiều round-trip)
+**Bước 3**: Filter dropdown "Phạm vi" → chọn Team cụ thể
+- So sánh tổng credits giữa các teams
+- Identify team nào tiêu nhiều nhất
 
-**Hành động**: Nếu 1 user chiếm > 30% pool → cần set user-level budget trên GitHub hoặc policy giới hạn model.
+**Hành động**: 
+- User chiếm > 30% pool → set user-level budget trên GitHub Settings
+- Team dùng toàn Opus → khuyến nghị chuyển sang Sonnet cho task thường ngày
+- Tham khảo: GitHub Settings → Copilot → Policies → model access control
 
 ---
 
@@ -447,22 +455,24 @@ OctoFinance Groups
 #### UC8: "AI Credits pool sắp hết chưa? Cần mua thêm không?"
 
 **Bước 1**: Tab **Yêu cầu cao cấp** → KPI tổng hợp
-- Xem gross credits used trong tháng
-- So với pool (seats × 3,000 promo hoặc × 1,900 standard)
+- "AI Credits (Gross)" = tổng credits đã dùng trong tháng
+- "Overage Credits" = phần vượt pool (nếu > 0 → đang bị tính tiền thêm)
+- "Chi phí vượt pool" = số tiền phải trả thêm
 
-**Bước 2**: Ước tính burn rate
+**Bước 2**: Tính burn rate
 - Credits dùng ÷ số ngày đã qua = credits/ngày
 - Credits/ngày × số ngày còn lại = projected usage cuối tháng
-- Nếu projected > pool → sẽ bị block hoặc tính tiền thêm
+- VD: 13,493 credits / 8 ngày = 1,687/ngày → projected: 1,687 × 30 = 50,600 credits
+- So với pool hiện tại (VD: 137,000) → 37% → an toàn
 
-**Bước 3**: Tab **Giám sát** → "User × Model"
+**Bước 3**: Tab **Yêu cầu cao cấp** → Bảng "Chi tiết người dùng"
 - Identify user tiêu nhiều nhất → set user-level budget trên GitHub
-- Identify model đắt → khuyến nghị team chuyển sang model rẻ hơn (Sonnet thay Opus)
+- Identify model đắt (cột "Model phổ biến nhất") → khuyến nghị chuyển model rẻ hơn
 
 **Hành động**:
-- Projected < 80% pool → an toàn, không cần làm gì
-- Projected 80-100% → cảnh báo team, khuyến nghị dùng model nhẹ
-- Projected > 100% → set budget limit trên GitHub Settings ngay
+- Projected < 70% pool → an toàn, không cần làm gì
+- Projected 70-90% → cảnh báo team, khuyến nghị dùng model nhẹ (Sonnet thay Opus)
+- Projected > 90% → set budget limit trên GitHub Settings ngay hoặc mua thêm credits
 
 ---
 

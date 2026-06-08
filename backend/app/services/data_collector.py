@@ -673,6 +673,41 @@ class DataCollector:
                             summary["synced"].append(f"ai_credits/{slug} ({len(items)} models, {total_credits:.0f} credits)")
                             if log_fn:
                                 log_fn("info", f"  {slug}: AI credits synced ({total_credits:.0f} gross credits, {len(items)} models)")
+
+                            # Fetch per-user AI Credits
+                            unique_logins: set[str] = set()
+                            for s in all_seats:
+                                login = ((s.get("assignee") or {}).get("login") or "").strip()
+                                if login:
+                                    unique_logins.add(login)
+                            user_credits: dict[str, dict] = {}
+                            for login in sorted(unique_logins):
+                                try:
+                                    uresp = await billing_client.get(
+                                        f"/enterprises/{slug}/settings/billing/ai_credit/usage",
+                                        params={"year": today.year, "month": today.month, "user": login},
+                                    )
+                                    if uresp.status_code == 200:
+                                        udata = uresp.json()
+                                        uitems = udata.get("usageItems", [])
+                                        if uitems:
+                                            user_credits[login] = {
+                                                "gross_credits": sum(i.get("grossQuantity", 0) for i in uitems),
+                                                "net_credits": sum(i.get("netQuantity", 0) for i in uitems),
+                                                "gross_amount": sum(i.get("grossAmount", 0) for i in uitems),
+                                                "net_amount": sum(i.get("netAmount", 0) for i in uitems),
+                                                "models": [
+                                                    {"model": i.get("model", ""), "credits": i.get("grossQuantity", 0)}
+                                                    for i in sorted(uitems, key=lambda x: -x.get("grossQuantity", 0))
+                                                ],
+                                            }
+                                except Exception:
+                                    pass
+                            if user_credits:
+                                self._save_json("ai_credits_users", slug, user_credits)
+                                summary["synced"].append(f"ai_credits_users/{slug} ({len(user_credits)} users)")
+                                if log_fn:
+                                    log_fn("info", f"  {slug}: AI credits per-user ({len(user_credits)} users with usage)")
                         elif log_fn:
                             log_fn("warn", f"  {slug}: AI credits endpoint {resp.status_code} - skipped")
                 except Exception as e:

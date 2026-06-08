@@ -1035,62 +1035,12 @@ def _build_org_billing_models(all_scope_names: list[str]) -> dict:
 def _build_api_premium_section(scope_users: set[str] | None = None) -> dict:
     """Build model usage stats from API-synced data (billing cycle).
 
-    When scope_users is provided, returns group-level activity data PLUS
-    org-level billing data as context (billing API has no per-user breakdown).
-    Otherwise tries premium_requests billing first, then totals_by_model_feature.
+    Priority: AI Credits (real billing) > legacy premium_requests > activity fallback.
+    All paths support scope_users filtering.
     """
     all_scope_names = _get_all_scope_names()
     cycle_start_str = date.today().replace(day=1).isoformat()
     cycle_end_str = date.today().isoformat()
-
-    # When group scope is active, build per-user activity data for the group
-    # and also include org-level billing data as context
-    if scope_users is not None:
-        activity_model_map: dict[str, dict] = defaultdict(lambda: {
-            "interactions": 0, "code_gen": 0, "code_accept": 0,
-        })
-        for scope in all_scope_names:
-            uu = data_collector.load_daily_usage_users(scope, start_day=cycle_start_str, end_day=cycle_end_str)
-            if not uu:
-                continue
-            records = uu if isinstance(uu, list) else uu.get("records", [uu])
-            for rec in records:
-                if (rec.get("user_login", "") or "").lower() not in scope_users:
-                    continue
-                for mf in rec.get("totals_by_model_feature", []):
-                    m = mf.get("model", "unknown")
-                    activity_model_map[m]["interactions"] += mf.get("user_initiated_interaction_count", 0)
-                    activity_model_map[m]["code_gen"] += mf.get("code_generation_activity_count", 0)
-                    activity_model_map[m]["code_accept"] += mf.get("code_acceptance_activity_count", 0)
-        total_interactions = sum(v["interactions"] for v in activity_model_map.values())
-        total_code_gen = sum(v["code_gen"] for v in activity_model_map.values())
-        activity_models = sorted(
-            [{"model": k, "gross_qty": v["interactions"] + v["code_gen"],
-              "net_qty": v["code_accept"], "gross_amount": 0.0, "net_amount": 0.0,
-              "interactions": v["interactions"], "code_gen": v["code_gen"], "code_accept": v["code_accept"]}
-             for k, v in activity_model_map.items() if v["interactions"] + v["code_gen"] > 0],
-            key=lambda x: -x["gross_qty"],
-        )
-        # Also load org-level billing data for context
-        org_billing = _build_org_billing_models(all_scope_names)
-        result: dict = {
-            "has_data": bool(activity_model_map) or bool(org_billing),
-            "source": "activity",
-            "scope_filtered": True,
-            "models": activity_models,
-            "total_requests": total_interactions + total_code_gen,
-            "net_requests": total_interactions,
-            "total_cost": 0.0,
-        }
-        if org_billing:
-            result["billing_models"] = org_billing["models"]
-            result["billing_total_requests"] = org_billing["total_requests"]
-            result["billing_net_requests"] = org_billing["net_requests"]
-            result["billing_total_cost"] = org_billing["total_cost"]
-        if not result["has_data"]:
-            result["has_data"] = False
-            result["models"] = []
-        return result
 
     # --- Try AI Credits data first (new billing model, June 2026+) ---
     ai_credits_data = None
@@ -1145,6 +1095,49 @@ def _build_api_premium_section(scope_users: set[str] | None = None) -> dict:
             pool_total += count * credits_per
         pool_used_pct = round(total_gross / pool_total * 100, 1) if pool_total > 0 else 0.0
 
+        # Per-user credits breakdown (with group scope filter)
+        users_list: list[dict] = []
+        for scope in all_scope_names:
+            ai_credits_users = data_collector.load_latest("ai_credits_users", scope)
+            if not ai_credits_users:
+                continue
+            for login, udata in ai_credits_users.items():
+                if scope_users is not None and login.lower() not in scope_users:
+                    continue
+                gross = udata.get("gross_credits", 0)
+                users_list.append({
+                    "user": login,
+                    "gross_credits": round(gross, 1),
+                    "net_credits": round(udata.get("net_credits", 0), 1),
+                    "gross_amount": round(udata.get("gross_amount", 0), 4),
+                    "net_amount": round(udata.get("net_amount", 0), 4),
+                    "models": udata.get("models", []),
+                    "top_model": udata["models"][0]["model"] if udata.get("models") else "",
+                    "pct": 0.0,
+                })
+        for u in users_list:
+            u["pct"] = round(u["gross_credits"] / total_gross * 100, 1) if total_gross > 0 else 0.0
+        users_list.sort(key=lambda x: -x["gross_credits"])
+
+        # If scope filtered, recalculate model totals from per-user data
+        if scope_users is not None:
+            model_map = defaultdict(lambda: {"gross_qty": 0.0, "net_qty": 0.0, "gross_amount": 0.0, "net_amount": 0.0})
+            total_gross = 0.0
+            total_net = 0.0
+            total_gross_amount = 0.0
+            total_net_amount = 0.0
+            for u in users_list:
+                for m_info in u.get("models", []):
+                    m = m_info.get("model", "unknown")
+                    credits = m_info.get("credits", 0)
+                    model_map[m]["gross_qty"] += credits
+                    total_gross += credits
+            models = sorted(
+                [{"model": k, **v} for k, v in model_map.items() if v["gross_qty"] > 0],
+                key=lambda x: -x["gross_qty"],
+            )
+            pool_used_pct = round(total_gross / pool_total * 100, 1) if pool_total > 0 else 0.0
+
         return {
             "has_data": True,
             "source": "ai_credits",
@@ -1154,6 +1147,7 @@ def _build_api_premium_section(scope_users: set[str] | None = None) -> dict:
             "net_requests": round(total_net, 1),
             "total_cost": round(total_net_amount, 4),
             "gross_cost": round(total_gross_amount, 4),
+            "users": users_list,
             "pool": {
                 "total_credits": pool_total,
                 "plan_breakdown": {plan: count * (AIC_PROMO_PER_USER.get(plan, 7000) if is_promo else AIC_INCLUDED_PER_USER.get(plan, 3900)) for plan, count in plan_counts.items()},
@@ -1166,6 +1160,54 @@ def _build_api_premium_section(scope_users: set[str] | None = None) -> dict:
             },
             "time_period": ai_credits_data.get("timePeriod", {}),
         }
+
+    # --- When group scope is active and no AI credits, use activity data ---
+    if scope_users is not None:
+        activity_model_map: dict[str, dict] = defaultdict(lambda: {
+            "interactions": 0, "code_gen": 0, "code_accept": 0,
+        })
+        for scope in all_scope_names:
+            uu = data_collector.load_daily_usage_users(scope, start_day=cycle_start_str, end_day=cycle_end_str)
+            if not uu:
+                continue
+            records = uu if isinstance(uu, list) else uu.get("records", [uu])
+            for rec in records:
+                if (rec.get("user_login", "") or "").lower() not in scope_users:
+                    continue
+                for mf in rec.get("totals_by_model_feature", []):
+                    m = mf.get("model", "unknown")
+                    activity_model_map[m]["interactions"] += mf.get("user_initiated_interaction_count", 0)
+                    activity_model_map[m]["code_gen"] += mf.get("code_generation_activity_count", 0)
+                    activity_model_map[m]["code_accept"] += mf.get("code_acceptance_activity_count", 0)
+        total_interactions = sum(v["interactions"] for v in activity_model_map.values())
+        total_code_gen = sum(v["code_gen"] for v in activity_model_map.values())
+        activity_models = sorted(
+            [{"model": k, "gross_qty": v["interactions"] + v["code_gen"],
+              "net_qty": v["code_accept"], "gross_amount": 0.0, "net_amount": 0.0,
+              "interactions": v["interactions"], "code_gen": v["code_gen"], "code_accept": v["code_accept"]}
+             for k, v in activity_model_map.items() if v["interactions"] + v["code_gen"] > 0],
+            key=lambda x: -x["gross_qty"],
+        )
+        # Also load org-level billing data for context
+        org_billing = _build_org_billing_models(all_scope_names)
+        result: dict = {
+            "has_data": bool(activity_model_map) or bool(org_billing),
+            "source": "activity",
+            "scope_filtered": True,
+            "models": activity_models,
+            "total_requests": total_interactions + total_code_gen,
+            "net_requests": total_interactions,
+            "total_cost": 0.0,
+        }
+        if org_billing:
+            result["billing_models"] = org_billing["models"]
+            result["billing_total_requests"] = org_billing["total_requests"]
+            result["billing_net_requests"] = org_billing["net_requests"]
+            result["billing_total_cost"] = org_billing["total_cost"]
+        if not result["has_data"]:
+            result["has_data"] = False
+            result["models"] = []
+        return result
 
     # --- Fallback: Try legacy premium_requests data ---
     model_map: dict[str, dict] = defaultdict(lambda: {
