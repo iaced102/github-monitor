@@ -61,7 +61,7 @@ ENTERPRISE_SLUG=hpt
 #### Cách thiết lập
 1. Tạo Classic PAT từ account enterprise admin/billing manager
 2. Chọn scope: `read:enterprise` (chỉ mục này)
-3. Thêm vào `.env`:
+3. Thêm vào `.env` (optional — nếu không set, sẽ dùng `GITHUB_PAT`):
 ```env
 GITHUB_BILLING_PAT=ghp_your_token_here
 ```
@@ -107,6 +107,7 @@ GITHUB_BILLING_PAT=ghp_your_token_here
 
 #### Cách thiết lập
 ```env
+# Optional — nếu không set, tự dùng GITHUB_PAT
 GITHUB_BILLING_PAT=ghp_your_billing_token_here
 ```
 
