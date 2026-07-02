@@ -436,7 +436,26 @@ function ApiUsageContent({ data, creditUsers }: { data: ApiUsageSection; creditU
             {sortedUsers.length > 0 ? (
               <>
                 <div style={{ display: "flex", justifyContent: "flex-end", marginBottom: 6 }}>
-                  <button className="btn btn-small" onClick={() => exportCSV("api-usage-users", sortedUsers)}>⬇ CSV</button>
+                  <button className="btn btn-small" onClick={() => {
+                    const exportRows = sortedUsers.map((u) => {
+                      const cdata = creditsMap.get(u.user.toLowerCase());
+                      return {
+                        user: u.user,
+                        org: u.org,
+                        ai_credits: Math.round(cdata?.credits ?? 0),
+                        limit: cdata?.limit ?? 0,
+                        quota_pct: (cdata?.pct ?? 0).toFixed(1),
+                        interactions: u.interactions,
+                        code_gen: u.code_gen,
+                        code_accept: u.code_accept,
+                        loc_suggested: u.loc_suggested,
+                        days_active: u.days_active,
+                        acceptance_rate: u.acceptance_rate,
+                        ides: u.ides.map((ide) => ide.ide).join("; "),
+                      };
+                    });
+                    exportCSV("ai-credit-users", exportRows);
+                  }}>⬇ CSV</button>
                 </div>
                 <div className="dashboard-table-wrap">
                 <table className="dashboard-table">
