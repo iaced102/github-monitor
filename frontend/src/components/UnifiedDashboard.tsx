@@ -47,9 +47,6 @@ export function UnifiedDashboard({ refreshKey }: Props) {
           <button className={`btn btn-small btn-toggle ${tab === "premium" ? "btn-toggle-active" : ""}`} onClick={() => setTab("premium")}>
             {t("csvDash.tabs.premium")}
           </button>
-          <button className={`btn btn-small btn-toggle ${tab === "usage" ? "btn-toggle-active" : ""}`} onClick={() => setTab("usage")}>
-            {t("csvDash.tabs.usage")}
-          </button>
           <button className={`btn btn-small btn-toggle ${tab === "costcenter" ? "btn-toggle-active" : ""}`} onClick={() => setTab("costcenter")}>
             {t("ccDash.tab")}
           </button>

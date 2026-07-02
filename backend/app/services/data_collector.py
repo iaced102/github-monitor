@@ -167,6 +167,14 @@ class DataCollector:
             if result is not None:
                 return result
 
+    def load_by_month(self, category: str, org: str, year: int, month: int) -> dict | list | None:
+        """Load snapshot matching a specific billing month (timePeriod)."""
+        if self._db is not None:
+            result = self._db.load_snapshot_by_month(category, org, year, month)
+            if result is not None:
+                return result
+        return None
+
     def load_daily_usage(self, org: str, start_day: str | None = None, end_day: str | None = None) -> dict | None:
         """Load usage data filtered by date range. Used for billing cycle queries."""
         if self._db is not None and self._db.has_daily_data("usage", org):
@@ -432,7 +440,101 @@ class DataCollector:
 
         return members
 
-    async def sync_enterprises(self, log_fn: LogFn = None) -> dict:
+    async def _sync_ai_credits(self, billing_client, slug: str, year: int, month: int,
+                               all_seats: list, summary: dict, log_fn: LogFn = None):
+        """Sync AI Credits (org-level + per-user) for a specific month."""
+        import asyncio
+        _RETRY_BACKOFF = [2, 5, 10]
+
+        resp = await billing_client.get(
+            f"/enterprises/{slug}/settings/billing/ai_credit/usage",
+            params={"year": year, "month": month},
+        )
+        if resp.status_code != 200:
+            if log_fn:
+                log_fn("warn", f"  {slug}: AI credits endpoint {resp.status_code} for {year}-{month:02d}")
+            return
+
+        credits_data = resp.json()
+        self._save_json("ai_credits", slug, credits_data)
+        items = credits_data.get("usageItems", [])
+        total_credits = sum(i.get("grossQuantity", 0) for i in items)
+        summary["synced"].append(f"ai_credits/{slug} ({len(items)} models, {total_credits:.0f} credits, {year}-{month:02d})")
+        if log_fn:
+            log_fn("info", f"  {slug}: AI credits {year}-{month:02d} synced ({total_credits:.0f} gross, {len(items)} models)")
+
+        # Fetch AI Credits budgets (limits per user) — before per-user loop to avoid timeout
+        try:
+            bresp = await billing_client.get(f"/enterprises/{slug}/settings/billing/budgets")
+            if bresp.status_code == 200:
+                budgets_data = bresp.json()
+                self._save_json("ai_credits_budgets", slug, budgets_data)
+                budgets = budgets_data.get("budgets", [])
+                summary["synced"].append(f"ai_credits_budgets/{slug} ({len(budgets)} budgets)")
+                if log_fn:
+                    log_fn("info", f"  {slug}: AI credits budgets synced ({len(budgets)} entries)")
+        except Exception as e:
+            if log_fn:
+                log_fn("warn", f"  {slug}: Failed to fetch budgets: {e}")
+
+        # Per-user AI Credits
+        unique_logins: set[str] = set()
+        for s in all_seats:
+            login = ((s.get("assignee") or {}).get("login") or "").strip()
+            if login:
+                unique_logins.add(login)
+
+        user_credits: dict[str, dict] = {}
+        skipped = 0
+        for login in sorted(unique_logins):
+            success = False
+            for attempt in range(3):
+                try:
+                    uresp = await billing_client.get(
+                        f"/enterprises/{slug}/settings/billing/ai_credit/usage",
+                        params={"year": year, "month": month, "user": login},
+                    )
+                    if uresp.status_code == 200:
+                        udata = uresp.json()
+                        uitems = udata.get("usageItems", [])
+                        if uitems:
+                            user_credits[login] = {
+                                "gross_credits": sum(i.get("grossQuantity", 0) for i in uitems),
+                                "net_credits": sum(i.get("netQuantity", 0) for i in uitems),
+                                "gross_amount": sum(i.get("grossAmount", 0) for i in uitems),
+                                "net_amount": sum(i.get("netAmount", 0) for i in uitems),
+                                "models": [
+                                    {"model": i.get("model", ""), "credits": i.get("grossQuantity", 0)}
+                                    for i in sorted(uitems, key=lambda x: -x.get("grossQuantity", 0))
+                                ],
+                            }
+                        success = True
+                        break
+                    elif uresp.status_code == 429:
+                        wait = int(uresp.headers.get("Retry-After", _RETRY_BACKOFF[attempt]))
+                        if log_fn:
+                            log_fn("warn", f"  {slug}: 429 on user {login}, retry in {wait}s (attempt {attempt + 1})")
+                        await asyncio.sleep(wait)
+                    else:
+                        success = True
+                        break
+                except Exception as e:
+                    if attempt == 2 and log_fn:
+                        log_fn("warn", f"  {slug}: failed to fetch credits for {login}: {e}")
+                    break
+            if not success:
+                skipped += 1
+
+        if user_credits:
+            self._save_json("ai_credits_users", slug, user_credits)
+            msg = f"ai_credits_users/{slug} ({len(user_credits)} users, {year}-{month:02d})"
+            if skipped:
+                msg += f" [{skipped} skipped]"
+            summary["synced"].append(msg)
+            if log_fn:
+                log_fn("info", f"  {slug}: AI credits per-user {year}-{month:02d} ({len(user_credits)} users){f', {skipped} skipped' if skipped else ''}")
+
+    async def sync_enterprises(self, log_fn: LogFn = None, credits_month: str | None = None) -> dict:
         """Sync enterprise list, cost centers, seats, billing, and usage reports."""
         summary: dict = {"synced": [], "errors": []}
         if not self._api_manager:
@@ -660,56 +762,26 @@ class DataCollector:
                             if log_fn:
                                 log_fn("info", f"  {slug}: seats from billing PAT ({total} total, {active_count} active)")
 
-                        # Fetch AI Credits usage for current month
-                        resp = await billing_client.get(
-                            f"/enterprises/{slug}/settings/billing/ai_credit/usage",
-                            params={"year": today.year, "month": today.month},
-                        )
-                        if resp.status_code == 200:
-                            credits_data = resp.json()
-                            self._save_json("ai_credits", slug, credits_data)
-                            items = credits_data.get("usageItems", [])
-                            total_credits = sum(i.get("grossQuantity", 0) for i in items)
-                            summary["synced"].append(f"ai_credits/{slug} ({len(items)} models, {total_credits:.0f} credits)")
-                            if log_fn:
-                                log_fn("info", f"  {slug}: AI credits synced ({total_credits:.0f} gross credits, {len(items)} models)")
+                        # Fetch AI Credits usage
+                        if credits_month:
+                            try:
+                                parts = credits_month.split("-")
+                                cm_year, cm_month = int(parts[0]), int(parts[1])
+                            except (ValueError, IndexError):
+                                cm_year, cm_month = today.year, today.month
+                            await self._sync_ai_credits(billing_client, slug, cm_year, cm_month, all_seats, summary, log_fn)
+                        else:
+                            await self._sync_ai_credits(billing_client, slug, today.year, today.month, all_seats, summary, log_fn)
 
-                            # Fetch per-user AI Credits
-                            unique_logins: set[str] = set()
-                            for s in all_seats:
-                                login = ((s.get("assignee") or {}).get("login") or "").strip()
-                                if login:
-                                    unique_logins.add(login)
-                            user_credits: dict[str, dict] = {}
-                            for login in sorted(unique_logins):
-                                try:
-                                    uresp = await billing_client.get(
-                                        f"/enterprises/{slug}/settings/billing/ai_credit/usage",
-                                        params={"year": today.year, "month": today.month, "user": login},
-                                    )
-                                    if uresp.status_code == 200:
-                                        udata = uresp.json()
-                                        uitems = udata.get("usageItems", [])
-                                        if uitems:
-                                            user_credits[login] = {
-                                                "gross_credits": sum(i.get("grossQuantity", 0) for i in uitems),
-                                                "net_credits": sum(i.get("netQuantity", 0) for i in uitems),
-                                                "gross_amount": sum(i.get("grossAmount", 0) for i in uitems),
-                                                "net_amount": sum(i.get("netAmount", 0) for i in uitems),
-                                                "models": [
-                                                    {"model": i.get("model", ""), "credits": i.get("grossQuantity", 0)}
-                                                    for i in sorted(uitems, key=lambda x: -x.get("grossQuantity", 0))
-                                                ],
-                                            }
-                                except Exception:
-                                    pass
-                            if user_credits:
-                                self._save_json("ai_credits_users", slug, user_credits)
-                                summary["synced"].append(f"ai_credits_users/{slug} ({len(user_credits)} users)")
-                                if log_fn:
-                                    log_fn("info", f"  {slug}: AI credits per-user ({len(user_credits)} users with usage)")
-                        elif log_fn:
-                            log_fn("warn", f"  {slug}: AI credits endpoint {resp.status_code} - skipped")
+                            # Auto-finalize previous month (days 1-5 of new month)
+                            if today.day <= 5:
+                                prev = (today.replace(day=1) - timedelta(days=1))
+                                finalize_key = f"ai_credits_finalized_{slug}_{prev.year}-{prev.month:02d}"
+                                if self._db and not self._db.get_config(finalize_key):
+                                    if log_fn:
+                                        log_fn("info", f"  {slug}: Auto-finalizing AI credits for {prev.year}-{prev.month:02d}")
+                                    await self._sync_ai_credits(billing_client, slug, prev.year, prev.month, all_seats, summary, log_fn)
+                                    self._db.set_config(finalize_key, {"finalized": True})
                 except Exception as e:
                     if log_fn:
                         log_fn("error", f"  {slug}: billing PAT error - {e}")
@@ -904,7 +976,7 @@ class DataCollector:
 
         return summary
 
-    async def sync_all(self, log_fn: LogFn = None) -> list[dict]:
+    async def sync_all(self, log_fn: LogFn = None, credits_month: str | None = None) -> list[dict]:
         """Sync data for all discovered orgs and enterprises via api_manager."""
         if not self._api_manager:
             return []
@@ -930,7 +1002,7 @@ class DataCollector:
         # Sync enterprise data (enterprises + cost centers)
         if log_fn:
             log_fn("info", "Syncing enterprise and cost center data...")
-        enterprise_summary = await self.sync_enterprises(log_fn=log_fn)
+        enterprise_summary = await self.sync_enterprises(log_fn=log_fn, credits_month=credits_month)
         results.append({"org": "__enterprise__", **enterprise_summary})
 
         # Sync GitHub Teams → user groups

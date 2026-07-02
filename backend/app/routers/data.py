@@ -1083,10 +1083,21 @@ def _build_api_premium_section(scope_users: set[str] | None = None, month: str =
 
     # --- Try AI Credits data first (new billing model, June 2026+) ---
     ai_credits_data = None
-    for scope in all_scope_names:
-        ai_credits_data = data_collector.load_latest("ai_credits", scope)
-        if ai_credits_data and ai_credits_data.get("usageItems"):
-            break
+    if month.strip():
+        try:
+            parts = month.strip().split("-")
+            m_year, m_month = int(parts[0]), int(parts[1])
+        except (ValueError, IndexError):
+            m_year, m_month = date.today().year, date.today().month
+        for scope in all_scope_names:
+            ai_credits_data = data_collector.load_by_month("ai_credits", scope, m_year, m_month)
+            if ai_credits_data and ai_credits_data.get("usageItems"):
+                break
+    else:
+        for scope in all_scope_names:
+            ai_credits_data = data_collector.load_latest("ai_credits", scope)
+            if ai_credits_data and ai_credits_data.get("usageItems"):
+                break
 
     if ai_credits_data and ai_credits_data.get("usageItems"):
         items = ai_credits_data["usageItems"]
@@ -1135,15 +1146,36 @@ def _build_api_premium_section(scope_users: set[str] | None = None, month: str =
         pool_used_pct = round(total_gross / pool_total * 100, 1) if pool_total > 0 else 0.0
 
         # Per-user credits breakdown (with group scope filter)
+        # Load budgets for limit info
+        budgets_data = None
+        for scope in all_scope_names:
+            budgets_data = data_collector.load_latest("ai_credits_budgets", scope)
+            if budgets_data:
+                break
+        default_limit_credits = 0
+        user_limit_map: dict[str, int] = {}
+        if budgets_data:
+            for b in budgets_data.get("budgets", []):
+                if b.get("budget_product_sku") != "ai_credits":
+                    continue
+                if b.get("budget_scope") == "multi_user_customer":
+                    default_limit_credits = int(b.get("budget_amount", 0) * 100)
+                elif b.get("budget_scope") == "user" and b.get("user"):
+                    user_limit_map[b["user"].lower()] = int(b.get("budget_amount", 0) * 100)
+
         users_list: list[dict] = []
         for scope in all_scope_names:
-            ai_credits_users = data_collector.load_latest("ai_credits_users", scope)
+            if month.strip():
+                ai_credits_users = data_collector.load_by_month("ai_credits_users", scope, m_year, m_month)
+            else:
+                ai_credits_users = data_collector.load_latest("ai_credits_users", scope)
             if not ai_credits_users:
                 continue
             for login, udata in ai_credits_users.items():
                 if scope_users is not None and login.lower() not in scope_users:
                     continue
                 gross = udata.get("gross_credits", 0)
+                limit = user_limit_map.get(login.lower(), default_limit_credits)
                 users_list.append({
                     "user": login,
                     "gross_credits": round(gross, 1),
@@ -1153,6 +1185,8 @@ def _build_api_premium_section(scope_users: set[str] | None = None, month: str =
                     "models": udata.get("models", []),
                     "top_model": udata["models"][0]["model"] if udata.get("models") else "",
                     "pct": 0.0,
+                    "limit_credits": limit,
+                    "usage_pct": round(gross / limit * 100, 1) if limit > 0 else 0.0,
                 })
         for u in users_list:
             u["pct"] = round(u["gross_credits"] / total_gross * 100, 1) if total_gross > 0 else 0.0

@@ -88,8 +88,8 @@ async def lifespan(app: FastAPI):
             else:
                 print("[OctoFinance] Auto sync on startup is disabled, skipping initial sync.")
 
-            # Start cron scheduler if configured
-            cron_expr = settings.get("sync_cron", "").strip()
+            # Start cron scheduler (default: every 4 hours)
+            cron_expr = settings.get("sync_cron", "0 */4 * * *").strip()
             if cron_expr:
                 sync_manager.start_cron_scheduler(
                     cron_expr,

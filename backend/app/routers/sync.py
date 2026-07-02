@@ -69,8 +69,9 @@ async def sync_stream():
 
 
 @router.post("/sync")
-async def sync_all(session_id: str | None = Query(default=None)):
+async def sync_all(session_id: str | None = Query(default=None), month: str = Query(default="")):
     """Trigger a full data sync for all discovered organizations.
+    Optional month param (e.g. '2026-06') syncs AI credits for that specific month.
     Returns immediately; sync runs in background with logs streamed via /sync/stream."""
     if sync_manager.is_syncing:
         return {"status": "already_syncing"}
@@ -79,7 +80,7 @@ async def sync_all(session_id: str | None = Query(default=None)):
 
     async def _do_sync(log_fn):
         for collector in collectors:
-            await collector.sync_all(log_fn=log_fn)
+            await collector.sync_all(log_fn=log_fn, credits_month=month.strip() or None)
 
     sync_manager.run_in_background(_do_sync)
     return {"status": "started"}

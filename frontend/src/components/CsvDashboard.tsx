@@ -106,10 +106,6 @@ function ApiPremiumContent({ data }: { data: ApiPremiumSection }) {
 
   return (
     <>
-      <div className="dashboard-notice" style={{ marginBottom: 12, padding: "8px 14px", background: "var(--bg-secondary)", border: "1px solid var(--border)", borderRadius: 8, fontSize: 12, color: "var(--text-muted)", display: "flex", alignItems: "center", gap: 8 }}>
-        <span>{isActivity ? t("csvDash.apiModelActivitySource") : t("csvDash.apiDataSource")}</span>
-        <InfoIcon id="csv_section_apiPremiumKpi" />
-      </div>
       <div className="dashboard-kpi">
         {isActivity ? (
           <>
@@ -126,16 +122,20 @@ function ApiPremiumContent({ data }: { data: ApiPremiumSection }) {
           <>
             <div className="stat-card">
               <div className="stat-value">{Math.round(data.total_requests).toLocaleString()}</div>
-              <div className="stat-label">{isAiCredits ? "AI Credits (Gross)" : t("csvDash.totalRequests")}</div>
+              <div className="stat-label">{isAiCredits ? "Credits đã dùng" : t("csvDash.totalRequests")}</div>
             </div>
-            <div className="stat-card">
-              <div className="stat-value">{Math.round(data.net_requests).toLocaleString()}</div>
-              <div className="stat-label">{isAiCredits ? "Overage Credits" : t("csvDash.netRequests")}</div>
-            </div>
-            <div className="stat-card cost">
-              <div className="stat-value cost">${data.total_cost.toFixed(2)}</div>
-              <div className="stat-label">{isAiCredits ? "Chi phí vượt pool" : t("csvDash.totalCost")}</div>
-            </div>
+            {!isAiCredits && (
+              <>
+                <div className="stat-card">
+                  <div className="stat-value">{Math.round(data.net_requests).toLocaleString()}</div>
+                  <div className="stat-label">{t("csvDash.netRequests")}</div>
+                </div>
+                <div className="stat-card cost">
+                  <div className="stat-value cost">${data.total_cost.toFixed(2)}</div>
+                  <div className="stat-label">{t("csvDash.totalCost")}</div>
+                </div>
+              </>
+            )}
           </>
         )}
         <div className="stat-card">
@@ -150,7 +150,7 @@ function ApiPremiumContent({ data }: { data: ApiPremiumSection }) {
           {pieData.length > 0 && (
             <div className="chart-card">
               <ChartTitle text={`${t("csvDash.costByModel")}${hasBillingContext ? " (toàn tổ chức)" : ""}`} infoKey="csv_chart_apiPremiumCostByModel" />
-              <ResponsiveContainer width="100%" height={280}>
+              <ResponsiveContainer width="100%" height={220}>
                 <PieChart>
                   <Pie
                     data={pieData}
@@ -158,8 +158,8 @@ function ApiPremiumContent({ data }: { data: ApiPremiumSection }) {
                     nameKey="name"
                     cx="50%"
                     cy="50%"
-                    outerRadius={100}
-                    innerRadius={52}
+                    outerRadius={80}
+                    innerRadius={42}
                     paddingAngle={2}
                     label={({ name, percent }) => `${(name ?? "").length > 18 ? (name ?? "").slice(0, 16) + "…" : (name ?? "")} ${((percent ?? 0) * 100).toFixed(0)}%`}
                     labelLine={false}
@@ -263,75 +263,27 @@ function ApiPremiumContent({ data }: { data: ApiPremiumSection }) {
           </div>
         )}
       </Section>
-
-      {/* Per-user breakdown (billing mode) */}
-      {!isActivity && data.users && data.users.length > 0 && (() => {
-        const hasBilling = data.users.some(u => u.source === "billing" && u.quota != null);
-        return (
-          <Section sectionKey="apiPremiumUsers" title={t("csvDash.userTable")} infoKey="csv_section_apiPremiumUsers">
-            <div className="dashboard-charts">
-              <div className="chart-card chart-card-wide">
-                <div style={{ fontSize: 11, color: "var(--text-muted)", marginBottom: 8 }}>
-                  ℹ️ {hasBilling ? t("csvDash.premiumUserNoteBilling") : t("csvDash.premiumUserNote")}
-                </div>
-                <div style={{ display: "flex", justifyContent: "flex-end", marginBottom: 6 }}>
-                  <button className="btn btn-small" onClick={() => exportCSV("premium-users-activity", data.users!)}>⬇ CSV</button>
-                </div>
-                <div className="dashboard-table-wrap">
-                  <table className="dashboard-table">
-                    <thead>
-                      <tr>
-                        <th>#</th>
-                        <th>{t("csvDash.user")}</th>
-                        <th>{t("monitor.topModel")}</th>
-                        <th>{isAiCredits ? "AI Credits" : t("csvDash.totalRequests")}</th>
-                        {hasBilling && <th>{t("csvDash.quota")}</th>}
-                        {hasBilling
-                          ? <th style={{ minWidth: 160 }}>{t("csvDash.quotaUsage")}</th>
-                          : <th style={{ minWidth: 140 }}>% {t("monitor.total")}</th>}
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {data.users.map((u, i) => {
-                        const quotaPct = u.quota_pct ?? u.pct;
-                        const barColor = (u.quota_pct ?? 0) >= 90 ? "#f85149"
-                          : (u.quota_pct ?? 0) >= 70 ? "#e3b341" : "#bc8cff";
-                        return (
-                          <tr key={u.user}>
-                            <td className="rank">{i + 1}</td>
-                            <td className="user-name">{u.user}</td>
-                            <td style={{ fontSize: 11, color: "var(--text-muted)" }}>{u.top_model || "—"}</td>
-                            <td>{(u.activity ?? u.gross_credits ?? 0).toLocaleString()}</td>
-                            {hasBilling && <td style={{ fontSize: 11 }}>{u.quota?.toLocaleString() ?? "—"}</td>}
-                            <td>
-                              <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
-                                <div style={{ flex: 1, height: 6, background: "var(--border)", borderRadius: 3, minWidth: 80 }}>
-                                  <div style={{
-                                    width: `${Math.min(quotaPct, 100)}%`, height: "100%",
-                                    background: barColor, borderRadius: 3,
-                                  }} />
-                                </div>
-                                <span style={{ fontSize: 11, whiteSpace: "nowrap" }}>{quotaPct.toFixed(1)}%</span>
-                              </div>
-                            </td>
-                          </tr>
-                        );
-                      })}
-                    </tbody>
-                  </table>
-                </div>
-              </div>
-            </div>
-          </Section>
-        );
-      })()}
     </>
   );
 }
 
 /* ---------- API Usage Activity fallback content ---------- */
-function ApiUsageContent({ data }: { data: ApiUsageSection }) {
+function ApiUsageContent({ data, creditUsers }: { data: ApiUsageSection; creditUsers?: Array<{ user: string; gross_credits?: number; limit_credits?: number; usage_pct?: number }> }) {
   const { t } = useI18n();
+  const [sortCol, setSortCol] = useState<string>("total");
+  const [sortAsc, setSortAsc] = useState(false);
+
+  // Build credits lookup map
+  const creditsMap = new Map<string, { credits: number; limit: number; pct: number }>();
+  if (creditUsers) {
+    for (const u of creditUsers) {
+      creditsMap.set(u.user.toLowerCase(), {
+        credits: u.gross_credits ?? 0,
+        limit: u.limit_credits ?? 0,
+        pct: u.usage_pct ?? 0,
+      });
+    }
+  }
 
   const totalInteractions = data.users.reduce((s, u) => s + u.interactions, 0);
   const totalCodeGen = data.users.reduce((s, u) => s + u.code_gen, 0);
@@ -341,13 +293,42 @@ function ApiUsageContent({ data }: { data: ApiUsageSection }) {
     ? (data.users.reduce((s, u) => s + u.acceptance_rate, 0) / data.users.length).toFixed(1)
     : "0";
 
-  // Sort by total activity descending
-  const sortedUsers = [...data.users].sort(
-    (a, b) => (b.interactions + b.code_gen) - (a.interactions + a.code_gen)
-  );
+  const handleSort = (col: string) => {
+    if (sortCol === col) {
+      setSortAsc(!sortAsc);
+    } else {
+      setSortCol(col);
+      setSortAsc(false);
+    }
+  };
+
+  const sortIndicator = (col: string) => sortCol === col ? (sortAsc ? " ▲" : " ▼") : " ⇅";
+
+  // Sort users by selected column
+  const sortedUsers = [...data.users].sort((a, b) => {
+    let va: number | string = 0;
+    let vb: number | string = 0;
+    switch (sortCol) {
+      case "user": va = a.user.toLowerCase(); vb = b.user.toLowerCase(); break;
+      case "org": va = (a.org || "").toLowerCase(); vb = (b.org || "").toLowerCase(); break;
+      case "credits": va = creditsMap.get(a.user.toLowerCase())?.credits ?? 0; vb = creditsMap.get(b.user.toLowerCase())?.credits ?? 0; break;
+      case "limit": va = creditsMap.get(a.user.toLowerCase())?.limit ?? 0; vb = creditsMap.get(b.user.toLowerCase())?.limit ?? 0; break;
+      case "credit_pct": va = creditsMap.get(a.user.toLowerCase())?.pct ?? 0; vb = creditsMap.get(b.user.toLowerCase())?.pct ?? 0; break;
+      case "interactions": va = a.interactions; vb = b.interactions; break;
+      case "code_gen": va = a.code_gen; vb = b.code_gen; break;
+      case "total": va = a.interactions + a.code_gen; vb = b.interactions + b.code_gen; break;
+      case "code_accept": va = a.code_accept; vb = b.code_accept; break;
+      case "loc_suggested": va = a.loc_suggested; vb = b.loc_suggested; break;
+      case "days_active": va = a.days_active; vb = b.days_active; break;
+      case "acceptance_rate": va = a.acceptance_rate; vb = b.acceptance_rate; break;
+      default: va = a.interactions + a.code_gen; vb = b.interactions + b.code_gen;
+    }
+    if (typeof va === "string") return sortAsc ? va.localeCompare(vb as string) : (vb as string).localeCompare(va);
+    return sortAsc ? (va as number) - (vb as number) : (vb as number) - (va as number);
+  });
 
   // Top 15 for bar chart with % of total
-  const topUsers = sortedUsers.slice(0, 15).map((u) => ({
+  const topUsers = sortedUsers.slice(0, 10).map((u) => ({
     ...u,
     total: u.interactions + u.code_gen,
     pct: totalActivity > 0 ? ((u.interactions + u.code_gen) / totalActivity * 100) : 0,
@@ -399,7 +380,7 @@ function ApiUsageContent({ data }: { data: ApiUsageSection }) {
           <div className="chart-card chart-card-wide">
             <ChartTitle text={t("monitor.topUsers")} infoKey="csv_section_apiUsageCharts" />
             {topUsers.length > 0 ? (
-              <ResponsiveContainer width="100%" height={Math.max(220, topUsers.length * 44)}>
+              <ResponsiveContainer width="100%" height={Math.max(180, topUsers.length * 36)}>
                 <BarChart data={topUsers} layout="vertical">
                   <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" />
                   <XAxis type="number" tick={{ fontSize: 11, fill: "var(--text-muted)" }} />
@@ -423,7 +404,7 @@ function ApiUsageContent({ data }: { data: ApiUsageSection }) {
           {ideData.length > 1 && (
             <div className="chart-card">
               <ChartTitle text="IDE Distribution" infoKey="csv_section_apiUsageCharts" />
-              <ResponsiveContainer width="100%" height={260}>
+              <ResponsiveContainer width="100%" height={200}>
                 <PieChart>
                   <Pie
                     data={ideData}
@@ -449,7 +430,7 @@ function ApiUsageContent({ data }: { data: ApiUsageSection }) {
         </div>
       </Section>
 
-      <Section sectionKey="apiUsageUsers" title={t("csvDash.userTable")} infoKey="csv_section_apiUsageUsers">
+      <Section sectionKey="apiUsageUsers" title="Chi tiết người dùng" infoKey="csv_section_apiUsageUsers">
         <div className="dashboard-charts">
           <div className="chart-card chart-card-wide">
             {sortedUsers.length > 0 ? (
@@ -462,15 +443,18 @@ function ApiUsageContent({ data }: { data: ApiUsageSection }) {
                   <thead>
                     <tr>
                       <th>#</th>
-                      <th>{t("csvDash.user")}</th>
-                      <th>{t("csvDash.org")}</th>
-                      <th>{t("dashboard.interactions")}</th>
-                      <th>{t("dashboard.codeGen")}</th>
-                      <th style={{ minWidth: 130 }}>% {t("monitor.total")}</th>
-                      <th>{t("dashboard.codeAccept")}</th>
-                      <th>{t("dashboard.locSuggested")}</th>
-                      <th>{t("dashboard.daysActive")}</th>
-                      <th>{t("dashboard.acceptRate")}</th>
+                      <th style={{ cursor: "pointer" }} onClick={() => handleSort("user")}>{t("csvDash.user")}{sortIndicator("user")}</th>
+                      <th style={{ cursor: "pointer" }} onClick={() => handleSort("org")}>{t("csvDash.org")}{sortIndicator("org")}</th>
+                      <th style={{ cursor: "pointer" }} onClick={() => handleSort("credits")}>AI Credits{sortIndicator("credits")}</th>
+                      <th style={{ cursor: "pointer" }} onClick={() => handleSort("limit")}>Limit{sortIndicator("limit")}</th>
+                      <th style={{ minWidth: 120, cursor: "pointer" }} onClick={() => handleSort("credit_pct")}>% Quota{sortIndicator("credit_pct")}</th>
+                      <th style={{ cursor: "pointer" }} onClick={() => handleSort("interactions")}>{t("dashboard.interactions")}{sortIndicator("interactions")}</th>
+                      <th style={{ cursor: "pointer" }} onClick={() => handleSort("code_gen")}>{t("dashboard.codeGen")}{sortIndicator("code_gen")}</th>
+                      <th style={{ minWidth: 130, cursor: "pointer" }} onClick={() => handleSort("total")}>% {t("monitor.total")}{sortIndicator("total")}</th>
+                      <th style={{ cursor: "pointer" }} onClick={() => handleSort("code_accept")}>{t("dashboard.codeAccept")}{sortIndicator("code_accept")}</th>
+                      <th style={{ cursor: "pointer" }} onClick={() => handleSort("loc_suggested")}>{t("dashboard.locSuggested")}{sortIndicator("loc_suggested")}</th>
+                      <th style={{ cursor: "pointer" }} onClick={() => handleSort("days_active")}>{t("dashboard.daysActive")}{sortIndicator("days_active")}</th>
+                      <th style={{ cursor: "pointer" }} onClick={() => handleSort("acceptance_rate")}>{t("dashboard.acceptRate")}{sortIndicator("acceptance_rate")}</th>
                       <th>IDEs</th>
                     </tr>
                   </thead>
@@ -478,11 +462,28 @@ function ApiUsageContent({ data }: { data: ApiUsageSection }) {
                     {sortedUsers.map((u, i) => {
                       const userTotal = u.interactions + u.code_gen;
                       const pct = totalActivity > 0 ? (userTotal / totalActivity * 100) : 0;
+                      const cdata = creditsMap.get(u.user.toLowerCase());
+                      const credits = cdata?.credits ?? 0;
+                      const limit = cdata?.limit ?? 0;
+                      const creditPct = cdata?.pct ?? 0;
+                      const barColor = creditPct >= 90 ? "#f85149" : creditPct >= 70 ? "#e3b341" : "#58a6ff";
                       return (
                         <tr key={u.user}>
                           <td className="rank">{i + 1}</td>
                           <td className="user-name">{u.user}</td>
                           <td>{u.org}</td>
+                          <td>{credits > 0 ? Math.round(credits).toLocaleString() : "—"}</td>
+                          <td>{limit > 0 ? limit.toLocaleString() : "—"}</td>
+                          <td>
+                            {limit > 0 ? (
+                              <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                                <div style={{ flex: 1, height: 6, background: "var(--border)", borderRadius: 3, minWidth: 60 }}>
+                                  <div style={{ width: `${Math.min(creditPct, 100)}%`, height: "100%", background: barColor, borderRadius: 3 }} />
+                                </div>
+                                <span style={{ fontSize: 11, whiteSpace: "nowrap" }}>{creditPct.toFixed(1)}%</span>
+                              </div>
+                            ) : "—"}
+                          </td>
                           <td>{u.interactions.toLocaleString()}</td>
                           <td>{u.code_gen.toLocaleString()}</td>
                           <td>
@@ -821,11 +822,11 @@ function PremiumUserModelChart({ data }: { data: PremiumCsvSection }) {
 }
 
 /* ---------- Usage Report content ---------- */
-function UsageContent({ data, apiData }: { data: UsageReportSection; apiData?: ApiUsageSection }) {
+function UsageContent({ data, apiData, creditUsers }: { data: UsageReportSection; apiData?: ApiUsageSection; creditUsers?: Array<{ user: string; gross_credits?: number; limit_credits?: number; usage_pct?: number }> }) {
   const { t } = useI18n();
 
   if (!data.has_data) {
-    if (apiData?.has_data) return <ApiUsageContent data={apiData} />;
+    if (apiData?.has_data) return <ApiUsageContent data={apiData} creditUsers={creditUsers} />;
     if (apiData?.scope_filtered) return <div className="dashboard-empty">{t("csvDash.noDataGroup")}</div>;
     return <div className="dashboard-empty">{t("csvDash.noDataType")}</div>;
   }
@@ -1058,8 +1059,11 @@ export function CsvDashboard({ refreshKey, tab }: Props) {
 
       {data && (
         tab === "premium"
-          ? <PremiumContent data={data.premium_csv} apiData={data.api_premium} />
-          : <UsageContent data={data.usage_report} apiData={data.api_usage} />
+          ? <>
+              <PremiumContent data={data.premium_csv} apiData={data.api_premium} />
+              <UsageContent data={data.usage_report} apiData={data.api_usage} creditUsers={data.api_premium?.users} />
+            </>
+          : <UsageContent data={data.usage_report} apiData={data.api_usage} creditUsers={data.api_premium?.users} />
       )}
     </div>
   );

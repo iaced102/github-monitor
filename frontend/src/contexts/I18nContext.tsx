@@ -196,7 +196,7 @@ const translations = {
 
     // CSV Dashboard
     "csvDash.title": "CSV Report Dashboard",
-    "csvDash.tabs.premium": "Premium Requests",
+    "csvDash.tabs.premium": "AI Credit",
     "csvDash.tabs.usage": "Usage Report",
     "csvDash.filters": "Filters",
     "csvDash.allOrgs": "All Orgs",
@@ -623,7 +623,7 @@ const translations = {
 
     // CSV Dashboard
     "csvDash.title": "CSV \u62a5\u8868\u9762\u677f",
-    "csvDash.tabs.premium": "\u9ad8\u7ea7\u8bf7\u6c42",
+    "csvDash.tabs.premium": "AI Credit",
     "csvDash.tabs.usage": "\u4f7f\u7528\u62a5\u8868",
     "csvDash.filters": "\u7b5b\u9009",
     "csvDash.allOrgs": "\u5168\u90e8\u7ec4\u7ec7",
@@ -1048,7 +1048,7 @@ const translations = {
 
     // CSV Dashboard
     "csvDash.title": "Bảng điều khiển báo cáo CSV",
-    "csvDash.tabs.premium": "Yêu cầu cao cấp",
+    "csvDash.tabs.premium": "AI Credit",
     "csvDash.tabs.usage": "Báo cáo sử dụng",
     "csvDash.filters": "Bộ lọc",
     "csvDash.allOrgs": "Tất cả tổ chức",

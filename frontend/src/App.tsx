@@ -1,4 +1,5 @@
 import { useState, useCallback, useRef, useEffect, type ReactNode } from "react";
+import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
 import { ThemeProvider } from "./contexts/ThemeContext";
 import { I18nProvider, useI18n } from "./contexts/I18nContext";
 import { UIStateProvider, useUIState } from "./contexts/UIStateContext";
@@ -6,6 +7,7 @@ import { AuthProvider, useCurrentUser } from "./contexts/AuthContext";
 import { useChat } from "./hooks/useChat";
 import { useSessions } from "./hooks/useSessions";
 import { useSyncStream } from "./hooks/useSyncStream";
+import { useRouteSync } from "./hooks/useRouteSync";
 import { ChatInterface } from "./components/ChatInterface";
 import { UnifiedDashboard } from "./components/UnifiedDashboard";
 import { ConsolePanel } from "./components/ConsolePanel";
@@ -55,6 +57,7 @@ function SidebarPanel({ title, collapsed, onToggle, extra, children, autoHeight 
 }
 
 function AppLayout({ onLogout }: { onLogout: () => void }) {
+  useRouteSync();
   const { t } = useI18n();
   const ui = useUIState();
   const sidebarWidth = ui.sidebarWidth;
@@ -355,15 +358,21 @@ function AuthGate() {
 
 function App() {
   return (
-    <ThemeProvider>
-      <I18nProvider>
-        <UIStateProvider>
-          <AuthProvider>
-            <AuthGate />
-          </AuthProvider>
-        </UIStateProvider>
-      </I18nProvider>
-    </ThemeProvider>
+    <BrowserRouter>
+      <ThemeProvider>
+        <I18nProvider>
+          <UIStateProvider>
+            <AuthProvider>
+              <Routes>
+                <Route path="/chat" element={<AuthGate />} />
+                <Route path="/dashboard/:tab" element={<AuthGate />} />
+                <Route path="*" element={<Navigate to="/dashboard/metrics" replace />} />
+              </Routes>
+            </AuthProvider>
+          </UIStateProvider>
+        </I18nProvider>
+      </ThemeProvider>
+    </BrowserRouter>
   );
 }
 

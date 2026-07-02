@@ -186,6 +186,31 @@ class Database:
         ).fetchone()
         return json.loads(row["data"]) if row else None
 
+    def load_snapshot_by_month(self, category: str, org: str, year: int, month: int) -> dict | list | None:
+        """Return the most recent snapshot for (category, org) whose JSON contains matching timePeriod,
+        or falls within the given month by created_at."""
+        rows = self._conn.execute(
+            """SELECT data FROM data_snapshots
+               WHERE category = ? AND org = ?
+               ORDER BY created_at DESC""",
+            (category, org),
+        ).fetchall()
+        for row in rows:
+            parsed = json.loads(row["data"])
+            tp = parsed.get("timePeriod") if isinstance(parsed, dict) else None
+            if tp and tp.get("year") == year and tp.get("month") == month:
+                return parsed
+        # Fallback: match by created_at month (for data without timePeriod)
+        month_prefix = f"{year:04d}-{month:02d}"
+        row = self._conn.execute(
+            """SELECT data FROM data_snapshots
+               WHERE category = ? AND org = ? AND created_at LIKE ?
+               ORDER BY created_at DESC
+               LIMIT 1""",
+            (category, org, f"{month_prefix}%"),
+        ).fetchone()
+        return json.loads(row["data"]) if row else None
+
     def load_all_latest_snapshots(self, category: str) -> dict[str, dict | list]:
         """Return the most recent snapshot per org for a given category."""
         rows = self._conn.execute(
