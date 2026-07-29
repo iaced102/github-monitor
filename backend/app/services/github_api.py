@@ -406,6 +406,7 @@ class GitHubAPI:
         Returns None if org not found (404).
         Returns dict with _permission_error=True on 403 (missing scope or SSO not authorized).
         """
+        _PER_PAGE = 100
         try:
             all_seats = []
             page = 1
@@ -413,7 +414,7 @@ class GitHubAPI:
             while True:
                 resp = await (await self._ensure_client()).get(
                     f"/orgs/{org}/copilot/billing/seats",
-                    params={"per_page": 100, "page": page},
+                    params={"per_page": _PER_PAGE, "page": page},
                 )
                 if resp.status_code == 404:
                     return None
@@ -448,9 +449,10 @@ class GitHubAPI:
                 data = resp.json()
                 total = data.get("total_seats", 0)
                 seats = data.get("seats", [])
-                if not seats:
-                    break
                 all_seats.extend(seats)
+                # Stop when page is not full (last page) or empty
+                if len(seats) < _PER_PAGE:
+                    break
                 page += 1
             return {"total_seats": total, "seats": all_seats}
         except httpx.HTTPStatusError as e:
@@ -737,6 +739,7 @@ class GitHubAPI:
         API: GET /enterprises/{enterprise}/copilot/billing/seats
         Returns dict with _permission_error=True on 403 (missing scope or SSO not authorized).
         """
+        _PER_PAGE = 100
         try:
             all_seats = []
             page = 1
@@ -744,7 +747,7 @@ class GitHubAPI:
             while True:
                 resp = await (await self._ensure_client()).get(
                     f"/enterprises/{enterprise}/copilot/billing/seats",
-                    params={"per_page": 100, "page": page},
+                    params={"per_page": _PER_PAGE, "page": page},
                 )
                 if resp.status_code == 404:
                     return None
@@ -777,9 +780,10 @@ class GitHubAPI:
                 data = resp.json()
                 total = data.get("total_seats", 0)
                 seats = data.get("seats", [])
-                if not seats:
-                    break
                 all_seats.extend(seats)
+                # Stop when page is not full (last page) or empty
+                if len(seats) < _PER_PAGE:
+                    break
                 page += 1
             return {"total_seats": total, "seats": all_seats}
         except httpx.HTTPStatusError as e:

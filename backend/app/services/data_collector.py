@@ -680,6 +680,7 @@ class DataCollector:
             if self._billing_pat:
                 try:
                     import httpx
+                    _PER_PAGE = 100
                     async with httpx.AsyncClient(
                         base_url="https://api.github.com",
                         headers={
@@ -687,7 +688,7 @@ class DataCollector:
                             "Authorization": f"Bearer {self._billing_pat}",
                             "X-GitHub-Api-Version": "2026-03-10",
                         },
-                        timeout=30.0,
+                        timeout=60.0,  # increased: 2000+ users need more time
                     ) as billing_client:
                         all_seats = []
                         page = 1
@@ -695,18 +696,21 @@ class DataCollector:
                         while True:
                             resp = await billing_client.get(
                                 f"/enterprises/{slug}/copilot/billing/seats",
-                                params={"per_page": 100, "page": page},
+                                params={"per_page": _PER_PAGE, "page": page},
                             )
                             if resp.status_code != 200:
                                 if log_fn:
-                                    log_fn("warn", f"  {slug}: billing PAT seats {resp.status_code} - falling back to teams")
+                                    log_fn("warn", f"  {slug}: billing PAT seats page {page} returned {resp.status_code} - stopping pagination (collected {len(all_seats)} so far)")
                                 break
                             data = resp.json()
                             total = data.get("total_seats", 0)
                             seats = data.get("seats", [])
-                            if not seats:
-                                break
                             all_seats.extend(seats)
+                            if log_fn:
+                                log_fn("info", f"  {slug}: seats page {page} → {len(seats)} seats (running total: {len(all_seats)}/{total})")
+                            # Stop when page is not full (last page) or empty
+                            if len(seats) < _PER_PAGE:
+                                break
                             page += 1
                         if all_seats:
                             seats_data = {"total_seats": total, "seats": all_seats}
