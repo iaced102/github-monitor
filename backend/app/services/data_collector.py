@@ -446,13 +446,16 @@ class DataCollector:
         import asyncio
         _RETRY_BACKOFF = [2, 5, 10]
 
+        if log_fn:
+            log_fn("info", f"  {slug}: fetching AI credits org-level for {year}-{month:02d}...")
+
         resp = await billing_client.get(
             f"/enterprises/{slug}/settings/billing/ai_credit/usage",
             params={"year": year, "month": month},
         )
         if resp.status_code != 200:
             if log_fn:
-                log_fn("warn", f"  {slug}: AI credits endpoint {resp.status_code} for {year}-{month:02d}")
+                log_fn("warn", f"  {slug}: AI credits endpoint HTTP {resp.status_code} for {year}-{month:02d} — body: {resp.text[:300]}")
             return
 
         credits_data = resp.json()
@@ -465,6 +468,8 @@ class DataCollector:
 
         # Fetch AI Credits budgets (limits per user) — before per-user loop to avoid timeout
         try:
+            if log_fn:
+                log_fn("info", f"  {slug}: fetching AI credits budgets...")
             bresp = await billing_client.get(f"/enterprises/{slug}/settings/billing/budgets")
             if bresp.status_code == 200:
                 budgets_data = bresp.json()
@@ -473,6 +478,9 @@ class DataCollector:
                 summary["synced"].append(f"ai_credits_budgets/{slug} ({len(budgets)} budgets)")
                 if log_fn:
                     log_fn("info", f"  {slug}: AI credits budgets synced ({len(budgets)} entries)")
+            else:
+                if log_fn:
+                    log_fn("warn", f"  {slug}: budgets endpoint HTTP {bresp.status_code}")
         except Exception as e:
             if log_fn:
                 log_fn("warn", f"  {slug}: Failed to fetch budgets: {e}")
@@ -484,8 +492,13 @@ class DataCollector:
             if login:
                 unique_logins.add(login)
 
+        if log_fn:
+            log_fn("info", f"  {slug}: fetching per-user AI credits for {len(unique_logins)} users ({year}-{month:02d})...")
+
         user_credits: dict[str, dict] = {}
         skipped = 0
+        done = 0
+        log_interval = max(1, len(unique_logins) // 10)  # log every ~10%
         for login in sorted(unique_logins):
             success = False
             for attempt in range(3):
@@ -516,6 +529,8 @@ class DataCollector:
                             log_fn("warn", f"  {slug}: 429 on user {login}, retry in {wait}s (attempt {attempt + 1})")
                         await asyncio.sleep(wait)
                     else:
+                        if log_fn:
+                            log_fn("warn", f"  {slug}: user {login} HTTP {uresp.status_code} — skipping")
                         success = True
                         break
                 except Exception as e:
@@ -524,6 +539,9 @@ class DataCollector:
                     break
             if not success:
                 skipped += 1
+            done += 1
+            if log_fn and done % log_interval == 0:
+                log_fn("info", f"  {slug}: AI credits per-user progress: {done}/{len(unique_logins)} processed, {len(user_credits)} with data, {skipped} skipped")
 
         if user_credits:
             self._save_json("ai_credits_users", slug, user_credits)
@@ -532,15 +550,23 @@ class DataCollector:
                 msg += f" [{skipped} skipped]"
             summary["synced"].append(msg)
             if log_fn:
-                log_fn("info", f"  {slug}: AI credits per-user {year}-{month:02d} ({len(user_credits)} users){f', {skipped} skipped' if skipped else ''}")
+                log_fn("info", f"  {slug}: AI credits per-user {year}-{month:02d} done — {len(user_credits)} users with data, {len(unique_logins)-len(user_credits)-skipped} no usage, {skipped} skipped/failed")
+        else:
+            if log_fn:
+                log_fn("warn", f"  {slug}: AI credits per-user — no data collected for {len(unique_logins)} users (all have zero usage or all requests failed)")
 
     async def sync_enterprises(self, log_fn: LogFn = None, credits_month: str | None = None) -> dict:
         """Sync enterprise list, cost centers, seats, billing, and usage reports."""
+        import traceback as _tb
         summary: dict = {"synced": [], "errors": []}
         if not self._api_manager:
+            if log_fn:
+                log_fn("warn", "  sync_enterprises: no api_manager set, skipping")
             return summary
 
         enterprises = self._api_manager.get_all_enterprises()
+        if log_fn:
+            log_fn("info", f"  sync_enterprises: discovered {len(enterprises)} enterprise(s): {[e.get('slug') for e in enterprises]}")
         if not enterprises:
             if log_fn:
                 log_fn("info", "  No enterprises discovered, skipping enterprise sync")
@@ -554,9 +580,13 @@ class DataCollector:
 
         for ent in enterprises:
             slug = ent["slug"]
+            if log_fn:
+                log_fn("info", f"  ── Enterprise: {slug} ──")
             api = self._api_manager.get_api_for_enterprise(slug)
             if not api:
                 summary["errors"].append(f"enterprise/{slug}: no API client")
+                if log_fn:
+                    log_fn("error", f"  {slug}: no API client available — check PAT configuration")
                 continue
 
             if log_fn:
@@ -564,15 +594,22 @@ class DataCollector:
 
             # Cost centers
             try:
+                if log_fn:
+                    log_fn("info", f"  {slug}: fetching cost centers...")
                 raw_cost_centers = await api.get_enterprise_cost_centers(slug)
                 if log_fn:
                     log_fn("info", f"  {slug}: {len(raw_cost_centers)} cost centers, expanding members...")
                 expanded = []
                 total_members = 0
                 for cc in raw_cost_centers:
+                    cc_name = cc.get("name", "?")
+                    if log_fn:
+                        log_fn("info", f"  {slug}: expanding cost center '{cc_name}'...")
                     members = await self._expand_cost_center_members(cc, api, log_fn=log_fn)
                     expanded.append({**cc, "members": members, "member_count": len(members)})
                     total_members += len(members)
+                    if log_fn:
+                        log_fn("info", f"  {slug}: '{cc_name}' → {len(members)} members")
                 self._save_json("cost_centers", slug, {
                     "enterprise": slug,
                     "enterprise_name": ent.get("name", ""),
@@ -586,11 +623,12 @@ class DataCollector:
                     f"cost_centers/{slug} ({len(expanded)} centers, {total_members} member assignments)"
                 )
                 if log_fn:
-                    log_fn("info", f"  {slug}: cost centers synced ({len(expanded)} centers)")
+                    log_fn("info", f"  {slug}: cost centers synced ({len(expanded)} centers, {total_members} total member assignments)")
             except Exception as e:
                 summary["errors"].append(f"cost_centers/{slug}: {e}")
                 if log_fn:
                     log_fn("error", f"  {slug}: cost centers error - {e}")
+                    log_fn("error", f"  {slug}: traceback: {_tb.format_exc()}")
 
             # Billing (use enterprise slug as org key so existing tools pick it up)
             # Incremental fetch: only get days not yet in DB + retry yesterday (report delay ~24h)
@@ -616,6 +654,9 @@ class DataCollector:
                     existing_usage_days.add(row["day"])
                 for row in self._db.load_daily("usage_users", slug):
                     existing_users_days.add(row["day"])
+            else:
+                if log_fn:
+                    log_fn("warn", f"  {slug}: no DB instance, incremental usage sync disabled")
 
             all_target_days = sorted(set(prev_month_catchup + days_in_cycle))
             usage_fetch_days = [d for d in all_target_days
@@ -623,26 +664,44 @@ class DataCollector:
             users_fetch_days = [d for d in all_target_days
                                if d not in existing_users_days or d in (yesterday, today_str)]
 
+            if log_fn:
+                log_fn("info", f"  {slug}: usage target days={len(all_target_days)}, to fetch={len(usage_fetch_days)} (already have {len(existing_usage_days)})")
+                log_fn("info", f"  {slug}: usage_users target days={len(all_target_days)}, to fetch={len(users_fetch_days)} (already have {len(existing_users_days)})")
+
             # Enterprise usage (incremental)
             try:
                 fetched_usage = 0
+                skipped_usage = 0
                 for day in usage_fetch_days:
+                    if log_fn:
+                        log_fn("info", f"  {slug}: fetching usage for {day}...")
                     day_report = await api.get_enterprise_usage_report_1day(slug, day)
                     if day_report and day_report.get("records"):
                         for rec in day_report["records"]:
                             self._db.save_daily("usage", slug, rec.get("day", day), rec)
                             fetched_usage += 1
-                if fetched_usage and log_fn:
-                    log_fn("info", f"  {slug}: usage fetched {fetched_usage} new day(s)")
+                    else:
+                        skipped_usage += 1
+                        if log_fn:
+                            log_fn("info", f"  {slug}: no usage records for {day} (skipped)")
+                if log_fn:
+                    if fetched_usage:
+                        log_fn("info", f"  {slug}: usage fetched {fetched_usage} new day(s), {skipped_usage} empty")
+                    else:
+                        log_fn("info", f"  {slug}: usage — nothing new to fetch (all {len(existing_usage_days)} days already synced)")
             except Exception as e:
                 summary["errors"].append(f"usage/{slug}: {e}")
                 if log_fn:
                     log_fn("error", f"  {slug}: usage error - {e}")
+                    log_fn("error", f"  {slug}: traceback: {_tb.format_exc()}")
 
             # Users usage (incremental)
             try:
                 fetched_users = 0
+                skipped_users = 0
                 for day in users_fetch_days:
+                    if log_fn:
+                        log_fn("info", f"  {slug}: fetching usage_users for {day}...")
                     day_report = await api.get_enterprise_users_usage_report_1day(slug, day)
                     if day_report and day_report.get("records"):
                         by_day: dict[str, list] = {}
@@ -652,12 +711,20 @@ class DataCollector:
                         for d, recs in by_day.items():
                             self._db.save_daily("usage_users", slug, d, recs)
                             fetched_users += 1
-                if fetched_users and log_fn:
-                    log_fn("info", f"  {slug}: usage users fetched {fetched_users} new day(s)")
+                    else:
+                        skipped_users += 1
+                        if log_fn:
+                            log_fn("info", f"  {slug}: no usage_users records for {day} (skipped)")
+                if log_fn:
+                    if fetched_users:
+                        log_fn("info", f"  {slug}: usage_users fetched {fetched_users} new day(s), {skipped_users} empty")
+                    else:
+                        log_fn("info", f"  {slug}: usage_users — nothing new to fetch (all {len(existing_users_days)} days already synced)")
             except Exception as e:
                 summary["errors"].append(f"usage_users/{slug}: {e}")
                 if log_fn:
-                    log_fn("error", f"  {slug}: usage users error - {e}")
+                    log_fn("error", f"  {slug}: usage_users error - {e}")
+                    log_fn("error", f"  {slug}: traceback: {_tb.format_exc()}")
 
             # Load full billing cycle data from DB for seats derivation and metrics
             usage = None
@@ -678,6 +745,8 @@ class DataCollector:
             # ── Seats: prefer real data from billing PAT, fall back to team derivation ──
             seats_synced = False
             if self._billing_pat:
+                if log_fn:
+                    log_fn("info", f"  {slug}: billing PAT available — fetching seats via billing API...")
                 try:
                     import httpx
                     _PER_PAGE = 100
@@ -694,13 +763,15 @@ class DataCollector:
                         page = 1
                         total = 0
                         while True:
+                            if log_fn:
+                                log_fn("info", f"  {slug}: seats page {page} (per_page={_PER_PAGE})...")
                             resp = await billing_client.get(
                                 f"/enterprises/{slug}/copilot/billing/seats",
                                 params={"per_page": _PER_PAGE, "page": page},
                             )
                             if resp.status_code != 200:
                                 if log_fn:
-                                    log_fn("warn", f"  {slug}: billing PAT seats page {page} returned {resp.status_code} - stopping pagination (collected {len(all_seats)} so far)")
+                                    log_fn("warn", f"  {slug}: billing PAT seats page {page} returned HTTP {resp.status_code} — body: {resp.text[:300]} — stopping pagination (collected {len(all_seats)} so far)")
                                 break
                             data = resp.json()
                             total = data.get("total_seats", 0)
@@ -712,6 +783,10 @@ class DataCollector:
                             if len(seats) < _PER_PAGE:
                                 break
                             page += 1
+
+                        if log_fn:
+                            log_fn("info", f"  {slug}: seats pagination done — collected {len(all_seats)} seats (API total_seats={total})")
+
                         if all_seats:
                             seats_data = {"total_seats": total, "seats": all_seats}
                             self._save_json("seats", slug, seats_data)
@@ -789,24 +864,39 @@ class DataCollector:
                 except Exception as e:
                     if log_fn:
                         log_fn("error", f"  {slug}: billing PAT error - {e}")
+                        log_fn("error", f"  {slug}: traceback: {_tb.format_exc()}")
+
+            else:
+                if log_fn:
+                    log_fn("warn", f"  {slug}: no billing PAT set — falling back to team-based seat derivation (less accurate)")
 
             # Fallback: derive seats from enterprise teams if billing PAT unavailable or failed
             if not seats_synced:
+                if log_fn:
+                    log_fn("info", f"  {slug}: starting team-based seat derivation fallback...")
                 all_licensed_users: set[str] = set()
                 try:
                     teams = await api.list_enterprise_teams(slug)
+                    if log_fn:
+                        log_fn("info", f"  {slug}: found {len(teams)} enterprise teams")
                     if teams:
                         for team in teams:
                             team_id = team.get("id", 0)
+                            team_name = team.get("name", team.get("slug", "?"))
                             if not team_id:
                                 continue
                             members_raw = await api.get_enterprise_team_members(slug, team_id)
+                            before = len(all_licensed_users)
                             for m in members_raw:
                                 login = m.get("login", "").strip()
                                 if login:
                                     all_licensed_users.add(login)
-                except Exception:
-                    pass
+                            if log_fn:
+                                log_fn("info", f"  {slug}: team '{team_name}' → {len(members_raw)} members (+{len(all_licensed_users)-before} new unique)")
+                except Exception as e:
+                    if log_fn:
+                        log_fn("error", f"  {slug}: team enumeration error - {e}")
+                        log_fn("error", f"  {slug}: traceback: {_tb.format_exc()}")
 
                 # Determine active users from billing cycle usage reports
                 active_users: dict[str, str] = {}  # login -> last_day
